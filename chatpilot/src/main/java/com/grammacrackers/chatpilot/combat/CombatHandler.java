@@ -154,6 +154,17 @@ public class CombatHandler {
         ChatPilotClient.TASKS.notifyCombatStart();
     }
 
+    public void forceExit() {
+        if (inCombat) {
+            exitCombat();
+        } else {
+            target = null;
+            combatTotalTicks = 0;
+            ticksSinceLastThreat = 0;
+            ticksSinceDamage = Integer.MAX_VALUE / 2;
+        }
+    }
+
     private void exitCombat() {
         inCombat = false;
         target = null;
