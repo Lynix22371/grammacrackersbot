@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "chatpilot",
+  "version": "${version}",
+  "name": "ChatPilot",
+  "description": "Chat-controlled autonomous Minecraft player powered by Baritone for 24/7 streams.",
+  "authors": ["LynixYT"],
+  "contact": {
+    "homepage": "https://www.youtube.com/@GrammaCrackers"
+  },
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "entrypoints": {
+    "main": ["com.grammacrackers.chatpilot.ChatPilotMod"],
+    "client": ["com.grammacrackers.chatpilot.ChatPilotClient"]
+  },
+  "mixins": [
+    "chatpilot.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "fabric-api": "*",
+    "minecraft": "~1.21.4",
+    "java": ">=21",
+    "baritone": "*"
+  }
+}

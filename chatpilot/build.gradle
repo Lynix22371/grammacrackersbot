@@ -1,0 +1,72 @@
+plugins {
+    id 'fabric-loom' version '1.9-SNAPSHOT'
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    maven {
+        name = 'Baritone'
+        url = 'https://baritone.leijurv.com/'
+    }
+    maven { url = 'https://maven.shedaniel.me/' }
+    maven { url = 'https://maven.terraformersmc.com/' }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // Baritone API (bundled in libs/)
+    modCompileOnly files('libs/baritone-api-fabric-1_13_1.jar')
+    modRuntimeOnly  files('libs/baritone-api-fabric-1_13_1.jar')
+
+    // OkHttp for Restream WebSocket and YouTube polling fallback
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    include 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.squareup.okio:okio-jvm:3.6.0'
+    include 'com.squareup.okio:okio-jvm:3.6.0'
+
+    // Kotlin runtime required by OkHttp 4.x (which is implemented in Kotlin)
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.10'
+    include 'org.jetbrains.kotlin:kotlin-stdlib:1.9.10'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib-common:1.9.10'
+    include 'org.jetbrains.kotlin:kotlin-stdlib-common:1.9.10'
+    implementation 'org.jetbrains:annotations:24.0.0'
+    include 'org.jetbrains:annotations:24.0.0'
+
+    // Gson is shipped by Minecraft already, no need to bundle.
+}
+
+processResources {
+    inputs.property "version", project.version
+
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+jar {
+    from("LICENSE") {
+        rename { "${it}_${project.archivesBaseName}" }
+    }
+}
