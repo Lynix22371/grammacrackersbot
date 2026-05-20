@@ -21,6 +21,7 @@ import com.grammacrackers.chatpilot.voting.VoteManager;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import com.grammacrackers.chatpilot.safety.LavaEscapeManager;
 
 public class ChatPilotClient implements ClientModInitializer {
 
@@ -37,6 +38,7 @@ public class ChatPilotClient implements ClientModInitializer {
     public static YouTubeChatPoller YOUTUBE;
     public static RestreamAuthManager AUTH;
     public static RestreamOAuthCallbackServer OAUTH_SERVER;
+    public static LavaEscapeManager LAVA_ESCAPE;
 
     /** v1.1.0: persistent record of explored structures so Explore/Mystery never repeat. */
     public static VisitedStructuresManager VISITED;
@@ -61,6 +63,7 @@ public class ChatPilotClient implements ClientModInitializer {
         YOUTUBE   = new YouTubeChatPoller();
         VISITED   = new VisitedStructuresManager();
         DANCE     = new DanceManager();
+        LAVA_ESCAPE = new LavaEscapeManager();
 
         // OAuth: load credentials/tokens; start refresh loop; wire token notifications.
         AUTH = new RestreamAuthManager();
