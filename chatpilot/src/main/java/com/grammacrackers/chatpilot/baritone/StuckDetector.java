@@ -32,6 +32,11 @@ public class StuckDetector {
             stillTicks = 0;
             return false;
         }
+        if (p.handSwinging) {
+            stillTicks = 0;
+            lastPos = cur;
+            return false;
+        }
 
         double dx = cur.x - lastPos.x;
         double dy = cur.y - lastPos.y;
