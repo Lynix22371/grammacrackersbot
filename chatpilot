@@ -1,1 +1,9 @@
-
+{
+  "category.chatpilot": "ChatPilot",
+  "key.chatpilot.toggle_hud": "Toggle HUD",
+  "key.chatpilot.estop": "Emergency Stop",
+  "key.chatpilot.set_home": "Set Home From Nearest Bed",
+  "key.chatpilot.force_vote": "Force Open Vote",
+  "key.chatpilot.toggle_pilot": "Toggle ChatPilot On/Off",
+  "key.chatpilot.dance": "Trigger Dance"
+}
