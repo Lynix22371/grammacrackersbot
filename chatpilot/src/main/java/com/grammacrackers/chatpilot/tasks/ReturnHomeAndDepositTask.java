@@ -41,12 +41,22 @@ import java.util.Deque;
 public class ReturnHomeAndDepositTask implements Task {
 
     private enum Stage {
+        EXIT_MINING_AREA,
         WALK_HOME,
-        // v1.2.0 cactus stages
-        CACTUS_GO, CACTUS_AIM, CACTUS_DROP,
-        HOPPER_GO, HOPPER_OPEN, HOPPER_DEPOSIT, HOPPER_CLOSE,
-        NEXT_CHEST, WALK_TO_CHEST, OPEN_CHEST, TRANSFER, CLOSE_CHEST,
-        FINAL_RETURN, DONE
+        CACTUS_GO,
+        CACTUS_AIM,
+        CACTUS_DROP,
+        HOPPER_GO,
+        HOPPER_OPEN,
+        HOPPER_DEPOSIT,
+        HOPPER_CLOSE,
+        NEXT_CHEST,
+        WALK_TO_CHEST,
+        OPEN_CHEST,
+        TRANSFER,
+        CLOSE_CHEST,
+        FINAL_RETURN,
+        DONE
     }
 
     private Stage stage = Stage.WALK_HOME;
@@ -57,11 +67,13 @@ public class ReturnHomeAndDepositTask implements Task {
     private int      hopperDepositCursor;
     /** Inventory cursor for the cactus dump pass; iterates 0..35 (hotbar + main inv). */
     private int      cactusDropCursor;
+    private BlockPos miningExitPos;
     public boolean keepGravelForFlintTask = true;
 
     @Override
     public String displayName() {
         return switch (stage) {
+            case EXIT_MINING_AREA -> "Leaving mine";
             case WALK_HOME, FINAL_RETURN -> "Heading home";
             case CACTUS_GO, CACTUS_AIM, CACTUS_DROP -> "Tossing trash on cactus";
             case HOPPER_GO, HOPPER_OPEN, HOPPER_DEPOSIT, HOPPER_CLOSE -> "Putting items in hopper";
@@ -73,6 +85,7 @@ public class ReturnHomeAndDepositTask implements Task {
     @Override
     public String id() { return "return_home"; }
 
+
     @Override
     public void start() {
         if (!ChatPilotClient.HOME.hasHome()) {
@@ -80,9 +93,26 @@ public class ReturnHomeAndDepositTask implements Task {
             stage = Stage.DONE;
             return;
         }
-        stage = Stage.WALK_HOME;
+    
+        var mc = MinecraftClient.getInstance();
+    
+        miningExitPos = MiningStaging.stagingSurfacePos(
+                mc,
+                ChatPilotClient.CONFIG.miningReturnExitDistanceFromHome
+        );
+    
+        stage = Stage.EXIT_MINING_AREA;
         stageStartTick = clientTick();
-        ChatPilotClient.BARITONE.gotoNear(ChatPilotClient.HOME.getBedPos(), 3);
+    
+        ChatPilotMod.LOGGER.info(
+                "[ChatPilot] Returning via outside mining exit point {}",
+                miningExitPos
+        );
+    
+        ChatPilotClient.BARITONE.gotoNear(
+                miningExitPos,
+                ChatPilotClient.CONFIG.miningStagingArrivalRadius
+        );
     }
 
     @Override
@@ -91,6 +121,25 @@ public class ReturnHomeAndDepositTask implements Task {
         if (mc.player == null || mc.world == null) return false;
 
         switch (stage) {
+
+            case EXIT_MINING_AREA -> {
+                if (miningExitPos == null) {
+                    enterStage(Stage.WALK_HOME);
+                    ChatPilotClient.BARITONE.gotoNear(ChatPilotClient.HOME.getBedPos(), 3);
+                    break;
+                }
+            
+                int radius = Math.max(4, ChatPilotClient.CONFIG.miningStagingArrivalRadius);
+            
+                if (MiningStaging.isNearXZ(mc.player.getBlockPos(), miningExitPos, radius)
+                        || ticksInStage() > 20 * 120) {
+                    ChatPilotClient.BARITONE.hardReset();
+                    enterStage(Stage.WALK_HOME);
+                    ChatPilotClient.BARITONE.gotoNear(ChatPilotClient.HOME.getBedPos(), 3);
+                } else if (!ChatPilotClient.BARITONE.isPathing()) {
+                    ChatPilotClient.BARITONE.gotoNear(miningExitPos, radius);
+                }
+            }
             case WALK_HOME -> {
                 BlockPos bed = ChatPilotClient.HOME.getBedPos();
                 if (mc.player.getBlockPos().getSquaredDistance(bed) < 25 || ticksInStage() > 20 * 90) {

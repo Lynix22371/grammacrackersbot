@@ -74,9 +74,32 @@ public class ChatPilotConfig {
     public double  dropMultiplier = 2.0;
 
     // === Home / protection ===
-    public int    houseProtectionRadius = 25;
-    public int    chestSearchRadius     = 12;
-    public int    miningMinDistanceFromHome = 40;
+    public int houseProtectionRadius = 25;
+    public int chestSearchRadius = 12;
+    
+    /**
+     * Mining should not start right next to the house.
+     * The bot first walks this far from the bed, then starts Baritone mining.
+     */
+    public int miningMinDistanceFromHome = 100;
+    
+    /**
+     * When returning from underground mining, the bot first exits near this
+     * outside mining point, then walks home on the surface.
+     */
+    public int miningReturnExitDistanceFromHome = 100;
+    
+    /**
+     * Direction of the mining staging point from home.
+     * 0 = south/+Z, 90 = west/-X, 180 = north/-Z, 270 = east/+X.
+     * Change this if one side of the house is safer.
+     */
+    public double miningStagingBearingDegrees = 150.0;
+    
+    /**
+     * How close the bot must get to the mining staging point before starting mining.
+     */
+    public int miningStagingArrivalRadius = 6;
 
     // === Reliability ===
     public int    stuckThresholdTicks = 300;
