@@ -196,7 +196,6 @@ public class ChatPilotConfig {
         "minecraft:tuff",
         "minecraft:sand",
         "minecraft:red_sand",
-        "minecraft:gravel",
         "minecraft:raw_copper",
         "minecraft:copper_ingot",
         "minecraft:lapis_lazuli",
