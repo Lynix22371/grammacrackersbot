@@ -81,6 +81,12 @@ public class ChatPilotConfig {
     public int    miningOreQuotaLapis   = 0;
     public int    miningOreQuotaIron    = 0;
 
+    // === Chat-driven mining ===
+    public boolean miningUseChatDemand = true;
+    public int miningChatDemandWindowSeconds = 120;
+    public int miningChatDemandMinMentions = 2;
+    public int miningChatDemandUserCooldownSeconds = 8;
+
     // === Wood task target (legacy; vote slot 2 is Fishing in v1.2.0) ===
     public int    woodLogQuota = 32;
 
