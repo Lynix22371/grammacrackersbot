@@ -193,6 +193,21 @@ public class VoteManager {
     private static final java.util.Map<String, String> ALIASES;
     static {
         ALIASES = new java.util.HashMap<>();
+
+        for (String w : new String[]{
+                "flint",
+                "gravel",
+                "arrow",
+                "arrows",
+                "feather",
+                "feathers",
+                "farmflint",
+                "farm",
+                "grind"
+        }) {
+            ALIASES.put(w, "flint");
+        }
+        
         // Mining option
         for (String w : new String[]{"mine","mining","ore","ores","rocks","rock","dig","digging","pick","pickaxe","cave",
                                      "emerald","emeralds","gold","coal"})
@@ -261,10 +276,13 @@ public class VoteManager {
             case "mine":    return activeOptions.containsKey("1") ? "1" : null;
             case "fish":    return activeOptions.containsKey("2") ? "2" : null;
             case "explore": return activeOptions.containsKey("3") ? "3" : null;
-            case "sleep":   {
-                // Sleep is always slot 4 when active.
-                var opt = activeOptions.get("4");
-                if (opt != null && "Sleep".equalsIgnoreCase(opt.label)) return "4";
+            case "flint":   return activeOptions.containsKey("4") ? "4" : null;
+            case "sleep": {
+                for (var e : activeOptions.entrySet()) {
+                    if ("Sleep".equalsIgnoreCase(e.getValue().label)) {
+                        return e.getKey();
+                    }
+                }
                 return null;
             }
             case "mystery": {
