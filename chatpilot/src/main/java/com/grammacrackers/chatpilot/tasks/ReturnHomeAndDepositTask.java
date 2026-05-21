@@ -68,6 +68,7 @@ public class ReturnHomeAndDepositTask implements Task {
     /** Inventory cursor for the cactus dump pass; iterates 0..35 (hotbar + main inv). */
     private int      cactusDropCursor;
     private BlockPos miningExitPos;
+    public boolean keepGravelForFlintTask = true;
 
     @Override
     public String displayName() {
@@ -405,6 +406,8 @@ public class ReturnHomeAndDepositTask implements Task {
     private static boolean shouldDeposit(ItemStack s) {
         if (s.isEmpty()) return false;
         var item = s.getItem();
+        if (item == Items.FLINT) return true;      // store flint at home
+        if (item == Items.GRAVEL && ChatPilotClient.CONFIG.keepGravelForFlintTask) return false;
         if (item == Items.TORCH) return false;
         if (item == Items.FISHING_ROD) return false; // keep the rod for next vote
         if (item == Items.BREAD || item == Items.COOKED_BEEF || item == Items.COOKED_PORKCHOP
@@ -424,18 +427,43 @@ public class ReturnHomeAndDepositTask implements Task {
     /** Match the item against the trash list in config. */
     private static boolean isTrash(ItemStack s) {
         if (s.isEmpty()) return false;
+    
         var cfg = ChatPilotClient.CONFIG;
-        if (cfg == null || cfg.trashItemIds == null || cfg.trashItemIds.isEmpty()) return false;
+        if (cfg == null || cfg.trashItemIds == null || cfg.trashItemIds.isEmpty()) {
+            return false;
+        }
+    
+        // Protect flint-task materials from cactus trash.
+        // Put this BEFORE matching cfg.trashItemIds.
+        if (cfg.keepGravelForFlintTask && s.isOf(Items.GRAVEL)) {
+            return false;
+        }
+    
+        // Flint is not currently trash by default, but this prevents accidents
+        // if "minecraft:flint" is ever added to trashItemIds later.
+        if (s.isOf(Items.FLINT)) {
+            return false;
+        }
+    
         Identifier id = Registries.ITEM.getId(s.getItem());
         if (id == null) return false;
-        String full = id.toString();         // e.g. "minecraft:cobblestone"
-        String shortId = id.getPath();       // e.g. "cobblestone"
+    
+        String full = id.toString();   // e.g. "minecraft:cobblestone"
+        String shortId = id.getPath(); // e.g. "cobblestone"
+    
         for (String t : cfg.trashItemIds) {
             if (t == null) continue;
-            if (t.equalsIgnoreCase(full) || t.equalsIgnoreCase(shortId)) return true;
+    
+            if (t.equalsIgnoreCase(full) || t.equalsIgnoreCase(shortId)) {
+                return true;
+            }
+    
             // accept "minecraft:foo" entries against bare "foo" inputs and vice versa
-            if (t.startsWith("minecraft:") && t.substring(10).equalsIgnoreCase(shortId)) return true;
+            if (t.startsWith("minecraft:") && t.substring(10).equalsIgnoreCase(shortId)) {
+                return true;
+            }
         }
+    
         return false;
     }
 
