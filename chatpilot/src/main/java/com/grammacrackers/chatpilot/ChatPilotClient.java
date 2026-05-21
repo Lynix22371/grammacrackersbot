@@ -22,6 +22,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import com.grammacrackers.chatpilot.safety.LavaEscapeManager;
+import com.grammacrackers.chatpilot.chat.OreDemandTracker;
 
 public class ChatPilotClient implements ClientModInitializer {
 
@@ -39,6 +40,7 @@ public class ChatPilotClient implements ClientModInitializer {
     public static RestreamAuthManager AUTH;
     public static RestreamOAuthCallbackServer OAUTH_SERVER;
     public static LavaEscapeManager LAVA_ESCAPE;
+    public static OreDemandTracker ORE_DEMAND;
 
     /** v1.1.0: persistent record of explored structures so Explore/Mystery never repeat. */
     public static VisitedStructuresManager VISITED;
@@ -64,6 +66,7 @@ public class ChatPilotClient implements ClientModInitializer {
         VISITED   = new VisitedStructuresManager();
         DANCE     = new DanceManager();
         LAVA_ESCAPE = new LavaEscapeManager();
+        ORE_DEMAND = new OreDemandTracker();
 
         // OAuth: load credentials/tokens; start refresh loop; wire token notifications.
         AUTH = new RestreamAuthManager();
@@ -87,10 +90,13 @@ public class ChatPilotClient implements ClientModInitializer {
         RESTREAM.setMessageSink(msg -> {
             VOTES.ingestChatMessage(msg);
             DANCE.onChatMessage(msg);
+            ORE_DEMAND.onChatMessage(msg);
         });
+
         YOUTUBE.setMessageSink(msg -> {
             VOTES.ingestChatMessage(msg);
             DANCE.onChatMessage(msg);
+            ORE_DEMAND.onChatMessage(msg);
         });
 
         ChatPilotMod.LOGGER.info("[ChatPilot] Client init complete (v1.2.1).");
