@@ -91,32 +91,40 @@ public class VoteManager {
 
         // Build the active option set for THIS round.
         activeOptions = new LinkedHashMap<>();
+
         activeOptions.put("1", options.get("1"));
         activeOptions.put("2", options.get("2"));
         activeOptions.put("3", options.get("3"));
-
-        boolean night     = isNightTime();
+        activeOptions.put("4", options.get("4")); // Farm flint
+        
+        boolean night = isNightTime();
         boolean offerMyst = shouldOfferMystery();
-
-        if (night && offerMyst) {
-            // Sleep takes slot 4; Mystery takes slot 5.
-            activeOptions.put("4", options.get("4"));
-            activeOptions.put("5", VoteOption.buildMystery("5"));
-            ChatPilotMod.LOGGER.info("[ChatPilot] Vote opened (night + mystery) for {}s",
-                ChatPilotClient.CONFIG.voteWindowSeconds);
-        } else if (night) {
-            activeOptions.put("4", options.get("4"));
-            ChatPilotMod.LOGGER.info("[ChatPilot] Vote opened (night, sleep available) for {}s",
-                ChatPilotClient.CONFIG.voteWindowSeconds);
-        } else if (offerMyst) {
-            activeOptions.put("4", VoteOption.buildMystery("4"));
-            ChatPilotMod.LOGGER.info("[ChatPilot] Vote opened (mystery available) for {}s",
-                ChatPilotClient.CONFIG.voteWindowSeconds);
-        } else {
-            ChatPilotMod.LOGGER.info("[ChatPilot] Vote opened for {}s",
-                ChatPilotClient.CONFIG.voteWindowSeconds);
+        
+        int nextSlot = 5;
+        
+        if (night) {
+            String key = String.valueOf(nextSlot++);
+            activeOptions.put(key, VoteOption.buildSleep(key));
         }
-        for (String k : activeOptions.keySet()) tally.put(k, 0);
+        
+        if (offerMyst) {
+            String key = String.valueOf(nextSlot++);
+            activeOptions.put(key, VoteOption.buildMystery(key));
+        }
+        
+        if (night && offerMyst) {
+            ChatPilotMod.LOGGER.info("[ChatPilot] Vote opened (night + mystery) for {}s", ChatPilotClient.CONFIG.voteWindowSeconds);
+        } else if (night) {
+            ChatPilotMod.LOGGER.info("[ChatPilot] Vote opened (night, sleep available) for {}s", ChatPilotClient.CONFIG.voteWindowSeconds);
+        } else if (offerMyst) {
+            ChatPilotMod.LOGGER.info("[ChatPilot] Vote opened (mystery available) for {}s", ChatPilotClient.CONFIG.voteWindowSeconds);
+        } else {
+            ChatPilotMod.LOGGER.info("[ChatPilot] Vote opened for {}s", ChatPilotClient.CONFIG.voteWindowSeconds);
+        }
+        
+        for (String k : activeOptions.keySet()) {
+            tally.put(k, 0);
+        }
     }
 
     /** True if a Mystery slot should be added to this vote round. */
