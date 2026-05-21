@@ -40,6 +40,28 @@ public class ChatPilotConfig {
     public boolean cancelSuffocationDamage = true;
     public double  lavaDamageMultiplier    = 0.10;
 
+    // === Camera / stream presentation ===
+    public boolean lookWhereWalking = true;
+    
+    /**
+     * Visible camera turn speed while Baritone is simply walking.
+     * Higher = snappier, lower = smoother.
+     */
+    public double lookWhereWalkingMaxYawPerTick = 7.0;
+    public double lookWhereWalkingMaxPitchPerTick = 3.0;
+    
+    /**
+     * Slightly downward looks more natural on stream than pitch=0.
+     * Use 0.0 if you want it to look exactly horizontally.
+     */
+    public double lookWhereWalkingPitch = 8.0;
+    
+    /**
+     * Ignore tiny jitter when the player is not really moving.
+     */
+    public double lookWhereWalkingMinSpeed = 0.015;
+    
+
     // === HUD layout ===
     public String hudAnchor = "CENTER";
     public int    hudOffsetX = 12;
