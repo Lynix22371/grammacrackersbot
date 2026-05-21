@@ -94,7 +94,7 @@ public class ChatPilotConfig {
      * 0 = south/+Z, 90 = west/-X, 180 = north/-Z, 270 = east/+X.
      * Change this if one side of the house is safer.
      */
-    public double miningStagingBearingDegrees = 270.0;
+    public double miningStagingBearingDegrees = 150.0;
     
     /**
      * How close the bot must get to the mining staging point before starting mining.
