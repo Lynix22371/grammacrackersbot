@@ -16,13 +16,17 @@ import com.grammacrackers.chatpilot.explore.StructureMarker;
  * means fewer copies of the chest-loot flow to maintain.
  */
 public class MysteryTask extends ExploreTask {
-
     public MysteryTask() {
-        // The label is the only thing chat sees; it matches the user's
-        // requested wording. Internal logs still include the actual
-        // structure type for debugging.
         super(StructureMarker.Mode.MYSTERY, "Heading towards mystery...");
     }
 
-    @Override public String id() { return "mystery"; }
+    @Override
+    public String id() {
+        return "mystery";
+    }
+
+    @Override
+    protected boolean shouldUseBoatAssist() {
+        return ChatPilotClient.CONFIG != null && ChatPilotClient.CONFIG.mysteryUseBoat;
+    }
 }
