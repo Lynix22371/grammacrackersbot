@@ -31,6 +31,20 @@ import com.grammacrackers.chatpilot.chat.OreDemandTracker;
  */
 public class MiningTask implements Task {
 
+    private enum Stage {
+        GO_TO_STAGING,
+        CHAT_REQUESTED,
+        CHAT_REQUESTED_EXPLORE,
+        EMERALD,
+        EMERALD_EXPLORE,
+        GOLD,
+        GOLD_EXPLORE,
+        COAL,
+        COAL_EXPLORE,
+        STONE_FALLBACK,
+        DONE
+    }
+
     private enum Stage { EMERALD, EMERALD_EXPLORE,
                          GOLD,    GOLD_EXPLORE,
                          COAL,    COAL_EXPLORE,
@@ -46,6 +60,7 @@ public class MiningTask implements Task {
 
     private OreDemandTracker.OreTarget chatTarget;
     private int chatTargetStartCount;
+    private BlockPos miningStagingPos;
 
     private Stage   stage = Stage.EMERALD;
     private OreType currentOre = OreType.NONE;
@@ -59,19 +74,7 @@ public class MiningTask implements Task {
     private boolean savedForCombat;
     private Stage   savedStage;
 
-    
-    private enum Stage {
-        CHAT_REQUESTED,
-        CHAT_REQUESTED_EXPLORE,
-        EMERALD,
-        EMERALD_EXPLORE,
-        GOLD,
-        GOLD_EXPLORE,
-        COAL,
-        COAL_EXPLORE,
-        STONE_FALLBACK,
-        DONE
-    }
+
 
         private static int countOreDrop(PlayerEntity p, OreDemandTracker.OreTarget target) {
         return switch (target) {
@@ -114,7 +117,13 @@ public class MiningTask implements Task {
             }
         }
         
-        enterStage(Stage.EMERALD);
+        ChatPilotClient.BARITONE.hardReset();
+
+        miningStagingPos = null;
+        chatTarget = null;
+        
+        enterStage(Stage.GO_TO_STAGING);
+        
         ChatPilotMod.LOGGER.info("[ChatPilot] Mining started at {}", mc.player.getBlockPos());
     }
 
@@ -139,6 +148,7 @@ public class MiningTask implements Task {
                     enterStage(Stage.CHAT_REQUESTED);
                 }
             }
+            case GO_TO_STAGING -> tickGoToStaging(mc);
                 
             case EMERALD -> tickOreStage(mc, Items.EMERALD, emeraldStart,
                 ChatPilotClient.CONFIG.miningOreQuotaEmerald,
@@ -166,6 +176,62 @@ public class MiningTask implements Task {
             case DONE -> { return true; }
         }
         return false;
+    }
+    private void tickGoToStaging(MinecraftClient mc) {
+        if (!ChatPilotClient.HOME.hasHome()) {
+            startActualMining(mc);
+            return;
+        }
+    
+        if (miningStagingPos == null) {
+            miningStagingPos = MiningStaging.stagingSurfacePos(
+                    mc,
+                    ChatPilotClient.CONFIG.miningMinDistanceFromHome
+            );
+    
+            ChatPilotMod.LOGGER.info(
+                    "[ChatPilot] Walking to mining staging point {} before digging",
+                    miningStagingPos
+            );
+    
+            ChatPilotClient.BARITONE.gotoNear(
+                    miningStagingPos,
+                    ChatPilotClient.CONFIG.miningStagingArrivalRadius
+            );
+        }
+    
+        int radius = Math.max(3, ChatPilotClient.CONFIG.miningStagingArrivalRadius);
+    
+        if (MiningStaging.isNearXZ(mc.player.getBlockPos(), miningStagingPos, radius)
+                || ticksInStage() > 20 * 90) {
+            ChatPilotClient.BARITONE.hardReset();
+            startActualMining(mc);
+        } else if (!ChatPilotClient.BARITONE.isPathing()) {
+            ChatPilotClient.BARITONE.gotoNear(miningStagingPos, radius);
+        }
+    }
+
+    private void startActualMining(MinecraftClient mc) {
+        chatTarget = null;
+    
+        if (ChatPilotClient.CONFIG.miningUseChatDemand && ChatPilotClient.ORE_DEMAND != null) {
+            chatTarget = ChatPilotClient.ORE_DEMAND.getMostRequestedOre();
+    
+            if (chatTarget != null) {
+                chatTargetStartCount = countOreDrop(mc.player, chatTarget);
+    
+                ChatPilotMod.LOGGER.info(
+                        "[ChatPilot] Chat-selected mining target: {} scores={}",
+                        chatTarget.id,
+                        ChatPilotClient.ORE_DEMAND.snapshotScores()
+                );
+    
+                enterStage(Stage.CHAT_REQUESTED);
+                return;
+            }
+        }
+    
+        enterStage(Stage.EMERALD);
     }
 
     private void tickOreStage(MinecraftClient mc, net.minecraft.item.Item targetItem,
@@ -279,6 +345,17 @@ public class MiningTask implements Task {
                     enterStage(Stage.EMERALD);
                 }
             }
+            case GO_TO_STAGING -> {
+                miningStagingPos = MiningStaging.stagingSurfacePos(
+                        MinecraftClient.getInstance(),
+                        ChatPilotClient.CONFIG.miningMinDistanceFromHome
+                );
+            
+                ChatPilotClient.BARITONE.gotoNear(
+                        miningStagingPos,
+                        ChatPilotClient.CONFIG.miningStagingArrivalRadius
+                );
+            }
             
             case CHAT_REQUESTED_EXPLORE -> ChatPilotClient.BARITONE.run("explore");
                 
@@ -297,9 +374,9 @@ public class MiningTask implements Task {
     private static OreType oreTypeOf(Stage s) {
         return switch (s) {
             case EMERALD, EMERALD_EXPLORE -> OreType.EMERALD;
-            case GOLD,    GOLD_EXPLORE    -> OreType.GOLD;
-            case COAL,    COAL_EXPLORE    -> OreType.COAL;
-            default                       -> OreType.NONE;
+            case GOLD, GOLD_EXPLORE -> OreType.GOLD;
+            case COAL, COAL_EXPLORE -> OreType.COAL;
+            default -> OreType.NONE;
         };
     }
 
@@ -313,7 +390,10 @@ public class MiningTask implements Task {
                 return true;
             }
 
-                
+            case GO_TO_STAGING -> {
+                startActualMining(MinecraftClient.getInstance());
+                return true;
+            }
             case EMERALD, EMERALD_EXPLORE -> { advanceOrExplore(Stage.EMERALD_EXPLORE, Stage.GOLD);            return true; }
             case GOLD,    GOLD_EXPLORE    -> { advanceOrExplore(Stage.GOLD_EXPLORE,    Stage.COAL);            return true; }
             case COAL,    COAL_EXPLORE    -> { advanceOrExplore(Stage.COAL_EXPLORE,    Stage.STONE_FALLBACK);  return true; }
