@@ -40,6 +40,28 @@ public class ChatPilotConfig {
     public boolean cancelSuffocationDamage = true;
     public double  lavaDamageMultiplier    = 0.10;
 
+    // === Camera / stream presentation ===
+    public boolean lookWhereWalking = true;
+    
+    /**
+     * Visible camera turn speed while Baritone is simply walking.
+     * Higher = snappier, lower = smoother.
+     */
+    public double lookWhereWalkingMaxYawPerTick = 7.0;
+    public double lookWhereWalkingMaxPitchPerTick = 3.0;
+    
+    /**
+     * Slightly downward looks more natural on stream than pitch=0.
+     * Use 0.0 if you want it to look exactly horizontally.
+     */
+    public double lookWhereWalkingPitch = 8.0;
+    
+    /**
+     * Ignore tiny jitter when the player is not really moving.
+     */
+    public double lookWhereWalkingMinSpeed = 0.015;
+    
+
     // === HUD layout ===
     public String hudAnchor = "CENTER";
     public int    hudOffsetX = 12;
@@ -86,6 +108,17 @@ public class ChatPilotConfig {
     public int miningChatDemandWindowSeconds = 120;
     public int miningChatDemandMinMentions = 2;
     public int miningChatDemandUserCooldownSeconds = 8;
+
+
+    // === Flint farming ===
+    public int flintTargetCount = 32;
+    public int flintGravelBatchSize = 64;
+    public int flintMinGravelBeforeCycle = 24;
+    public int flintTowerHeight = 4;
+    public int flintBuildHotbarSlot = 7;
+    public int flintToolHotbarSlot = 0;
+    public int flintCollectTimeoutTicks = 20 * 90;
+    public int flintMineCycleTimeoutTicks = 20 * 45;
 
     // === Wood task target (legacy; vote slot 2 is Fishing in v1.2.0) ===
     public int    woodLogQuota = 32;
@@ -163,7 +196,6 @@ public class ChatPilotConfig {
         "minecraft:tuff",
         "minecraft:sand",
         "minecraft:red_sand",
-        "minecraft:gravel",
         "minecraft:raw_copper",
         "minecraft:copper_ingot",
         "minecraft:lapis_lazuli",

@@ -10,6 +10,10 @@ import net.minecraft.entity.mob.HostileEntity;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
+import net.minecraft.screen.slot.SlotActionType;
 
 /**
  * Defensive-only combat. Grandma's bot ignores hostile mobs by default and
@@ -53,6 +57,21 @@ public class CombatHandler {
     private static final int HARD_COMBAT_CEILING_TICKS = 15 * 20;
 
     public boolean isInCombat() { return inCombat; }
+
+    // === Combat weapons ===
+    public boolean combatUseBestWeapon = true;
+    
+    /**
+     * Hotbar slot used when the best weapon is in main inventory.
+     * 0 = first hotbar slot, 8 = last hotbar slot.
+     */
+    public int combatWeaponHotbarSlot = 0;
+    
+    /**
+     * true = prefer axe if axe and sword score equally.
+     * false = prefer sword if tied.
+     */
+    public boolean combatPreferAxeOnTie = false;
 
     public void tick() {
         var mc = MinecraftClient.getInstance();
@@ -134,11 +153,14 @@ public class CombatHandler {
             target = null;
             return;
         }
-
-        // Attack when in range
-        if (dist <= ATTACK_RANGE + 0.5 && attackCooldown <= 0
-            && player.getAttackCooldownProgress(0) > 0.95f) {
+        // attack with correct weapon when in range 
+        if (dist <= ATTACK_RANGE + 0.5 && attackCooldown <= 0 && player.getAttackCooldownProgress(0) > 0.95f) {
             faceEntity(player, target);
+        
+            if (ChatPilotClient.CONFIG.combatUseBestWeapon) {
+                selectBestCombatWeapon(mc, player);
+            }
+        
             mc.interactionManager.attackEntity(player, target);
             player.swingHand(Hand.MAIN_HAND);
             attackCooldown = 8;
@@ -199,6 +221,113 @@ public class CombatHandler {
         player.setPitch(pitch);
     }
 
+
+    private static void selectBestCombatWeapon(MinecraftClient mc, ClientPlayerEntity player) {
+        if (mc == null || player == null || mc.interactionManager == null) return;
+    
+        int bestInvSlot = -1;
+        double bestScore = 0.0;
+    
+        for (int invSlot = 0; invSlot < 36; invSlot++) {
+            ItemStack stack = player.getInventory().getStack(invSlot);
+            double score = combatWeaponScore(stack);
+    
+            if (score > bestScore) {
+                bestScore = score;
+                bestInvSlot = invSlot;
+            }
+        }
+    
+        if (bestInvSlot < 0) {
+            return;
+        }
+    
+        // Already in hotbar.
+        if (bestInvSlot >= 0 && bestInvSlot <= 8) {
+            player.getInventory().selectedSlot = bestInvSlot;
+            return;
+        }
+    
+        int targetHotbarSlot = ChatPilotClient.CONFIG.combatWeaponHotbarSlot;
+        if (targetHotbarSlot < 0 || targetHotbarSlot > 8) {
+            targetHotbarSlot = 0;
+        }
+    
+        int handlerSlot = inventorySlotToHandlerSlot(bestInvSlot);
+    
+        try {
+            mc.interactionManager.clickSlot(
+                    player.playerScreenHandler.syncId,
+                    handlerSlot,
+                    targetHotbarSlot,
+                    SlotActionType.SWAP,
+                    player
+            );
+    
+            player.getInventory().selectedSlot = targetHotbarSlot;
+        } catch (Throwable t) {
+            ChatPilotMod.LOGGER.warn("[ChatPilot] Failed to swap combat weapon into hotbar", t);
+        }
+    }
+    
+    private static double combatWeaponScore(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return 0.0;
+    
+        Item item = stack.getItem();
+        String path = Registries.ITEM.getId(item).getPath();
+    
+        boolean sword = path.endsWith("_sword");
+        boolean axe = path.endsWith("_axe");
+    
+        if (!sword && !axe) return 0.0;
+    
+        double materialScore;
+    
+        if (path.startsWith("netherite_")) {
+            materialScore = 6.0;
+        } else if (path.startsWith("diamond_")) {
+            materialScore = 5.0;
+        } else if (path.startsWith("iron_")) {
+            materialScore = 4.0;
+        } else if (path.startsWith("stone_")) {
+            materialScore = 3.0;
+        } else if (path.startsWith("golden_")) {
+            materialScore = 2.0;
+        } else if (path.startsWith("wooden_")) {
+            materialScore = 1.0;
+        } else {
+            materialScore = 0.5;
+        }
+    
+        double typeScore;
+    
+        if (axe) {
+            typeScore = ChatPilotClient.CONFIG.combatPreferAxeOnTie ? 0.20 : 0.10;
+        } else {
+            typeScore = ChatPilotClient.CONFIG.combatPreferAxeOnTie ? 0.10 : 0.20;
+        }
+    
+        // Prefer less damaged weapons if otherwise similar.
+        double durabilityScore = 0.0;
+        if (stack.isDamageable()) {
+            int max = stack.getMaxDamage();
+            int dmg = stack.getDamage();
+    
+            if (max > 0) {
+                durabilityScore = 0.05 * (1.0 - ((double) dmg / (double) max));
+            }
+        }
+    
+        return materialScore + typeScore + durabilityScore;
+    }
+    
+    private static int inventorySlotToHandlerSlot(int invSlot) {
+        if (invSlot >= 0 && invSlot <= 8) return 36 + invSlot;
+        if (invSlot >= 9 && invSlot <= 35) return invSlot;
+        return -1;
+    }
+
+    
     /** Public probe still useful for the watchdog. */
     public boolean hostilesInRange() {
         return inCombat;

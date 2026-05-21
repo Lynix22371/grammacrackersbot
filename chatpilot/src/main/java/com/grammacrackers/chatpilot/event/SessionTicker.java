@@ -63,6 +63,14 @@ public class SessionTicker {
         // manager will skip its main work this tick.
         ChatPilotClient.TASKS.tick();
 
+
+
+        if (ChatPilotClient.LOOK_WALKING != null) {
+            ChatPilotClient.LOOK_WALKING.tick(mc);
+        }
+        
+        
+
         // Voting always ticks so it can open new windows when idle
         ChatPilotClient.VOTES.tick();
 

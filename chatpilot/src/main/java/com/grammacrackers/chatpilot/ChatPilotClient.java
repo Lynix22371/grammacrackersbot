@@ -23,6 +23,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import com.grammacrackers.chatpilot.safety.LavaEscapeManager;
 import com.grammacrackers.chatpilot.chat.OreDemandTracker;
+import com.grammacrackers.chatpilot.movement.LookWhereWalkingManager;
 
 public class ChatPilotClient implements ClientModInitializer {
 
@@ -41,6 +42,7 @@ public class ChatPilotClient implements ClientModInitializer {
     public static RestreamOAuthCallbackServer OAUTH_SERVER;
     public static LavaEscapeManager LAVA_ESCAPE;
     public static OreDemandTracker ORE_DEMAND;
+    public static LookWhereWalkingManager LOOK_WALKING;
 
     /** v1.1.0: persistent record of explored structures so Explore/Mystery never repeat. */
     public static VisitedStructuresManager VISITED;
@@ -67,6 +69,7 @@ public class ChatPilotClient implements ClientModInitializer {
         DANCE     = new DanceManager();
         LAVA_ESCAPE = new LavaEscapeManager();
         ORE_DEMAND = new OreDemandTracker();
+        LOOK_WALKING = new LookWhereWalkingManager();
 
         // OAuth: load credentials/tokens; start refresh loop; wire token notifications.
         AUTH = new RestreamAuthManager();

@@ -39,6 +39,7 @@ public class BaritoneController {
         try {
             Settings s = BaritoneAPI.getSettings();
             // Sane defaults for an autonomous stream bot
+            s.freeLook.value = false;          // visible camera follows Baritone movement
             s.allowParkour.value = false;       // safer
             s.allowParkourPlace.value = false;
             s.allowSprint.value = true;
