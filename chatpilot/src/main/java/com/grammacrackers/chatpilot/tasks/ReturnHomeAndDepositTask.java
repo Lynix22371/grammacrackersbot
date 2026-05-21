@@ -363,6 +363,7 @@ public class ReturnHomeAndDepositTask implements Task {
             || item == Items.GOLDEN_APPLE || item == Items.APPLE || item == Items.CARROT) return false;
         if (item.getComponents().contains(net.minecraft.component.DataComponentTypes.MAX_DAMAGE)) return false;
         String path = Registries.ITEM.getId(item).getPath();
+        if (path.endsWith("_boat")) return false;
         if (path.endsWith("_bed")) return false;
         if (path.endsWith("_pickaxe") || path.endsWith("_axe") || path.endsWith("_sword")
             || path.endsWith("_shovel") || path.endsWith("_hoe")) return false;
