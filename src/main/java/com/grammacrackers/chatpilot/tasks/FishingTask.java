@@ -142,7 +142,8 @@ public class FishingTask implements Task {
         // ====================================================================
         // OCEAN FIX 2: SHORT-CIRCUIT FOR OPEN SEA FISHING
         // ====================================================================
-        if (mc.player.isTouchingWater() && mc.world.getFluidState(mc.player.getBlockPos()).isStill()) {
+        var currentFluid = mc.world.getFluidState(mc.player.getBlockPos());
+        if (mc.player.isTouchingWater() && currentFluid.isStill() && (currentFluid.isOf(Fluids.WATER) || currentFluid.isOf(Fluids.FLOWING_WATER))) {
             // We are already floating in water! Target a block 4 blocks directly ahead of our gaze
             var lookVec = mc.player.getRotationVec(1.0f);
             BlockPos forwardWater = mc.player.getBlockPos().add(
@@ -334,24 +335,35 @@ public class FishingTask implements Task {
         BlockPos playerPos = mc.player.getBlockPos();
         int r = 16; // Search radius
 
+        BlockPos closestWater = null;
+        double closestDistSq = Double.MAX_VALUE;
+
         for (int y = r; y >= -r; y--) {
             for (int x = -r; x <= r; x++) {
                 for (int z = -r; z <= r; z++) {
                     BlockPos p = playerPos.add(x, y, z);
 
-                    // 1. Check if the block is a still fluid (water)
-                    if (mc.world.getFluidState(p).isStill()) {
+                    // 1. Check if the block is a still fluid AND is actually water (ignores lava)
+                    var fluidState = mc.world.getFluidState(p);
+                    if (fluidState.isStill() && (fluidState.isOf(Fluids.WATER) || fluidState.isOf(Fluids.FLOWING_WATER))) {
 
-                        // 2. THE FIX: Ensure the block directly above it has an open line of sight to the sky
-                        // This filters out underground caves, dark spaces, and subterranean lava/water traps.
+                        // 2. Ensure the block directly above it has an open line of sight to the sky
                         if (mc.world.isSkyVisible(p.up())) {
-                            return p; // Found a safe surface water source!
+
+                            // 3. Distance check: Is this water block closer than the one we already found?
+                            double distSq = p.getSquaredDistance(playerPos);
+                            if (distSq < closestDistSq) {
+                                closestDistSq = distSq;
+                                closestWater = p;
+                            }
                         }
                     }
                 }
             }
         }
-        return null; // No open sky water found in range
+
+        // Return the absolute closest valid fishing spot found, or null if empty
+        return closestWater;
     }
 
     /**
