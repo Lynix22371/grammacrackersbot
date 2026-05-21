@@ -114,6 +114,26 @@ public class ChatPilotConfig {
     public String danceMusicSound        = "minecraft:music_disc.cat";
     public boolean danceUseThirdPerson   = true;
 
+    // === Mystery boat travel ===
+    public boolean mysteryUseBoat = true;
+    public boolean mysteryCraftBoatIfMissing = true;
+    
+    /**
+     * Only use the boat when the target is far enough away.
+     * Prevents stupid boat placement for tiny puddles near the structure.
+     */
+    public int mysteryBoatMinTravelDistance = 80;
+    
+    /**
+     * How many blocks ahead to scan for usable water.
+     */
+    public int mysteryBoatWaterLookahead = 10;
+    
+    /**
+     * Do not waste the whole mystery run trying to craft.
+     */
+    public int mysteryBoatPrepTimeoutTicks = 20 * 20;
+
     // === Trash cactus ===
     /**
      * Items dropped onto the cactus during the return-home flow. The bot

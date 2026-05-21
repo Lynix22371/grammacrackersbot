@@ -98,6 +98,10 @@ public class ExploreTask implements Task {
 
     private boolean savedForCombat;
 
+    protected boolean shouldUseBoatAssist() {
+        return false;
+    }
+
     public ExploreTask() { this(StructureMarker.Mode.EXPLORE, "Exploring..."); }
 
     /** Used by MysteryTask to share the same flow with a different label and pool. */
@@ -198,6 +202,13 @@ public class ExploreTask implements Task {
 
     private void tickApproach(MinecraftClient mc) {
         if (chosenMarker == null) { enterStage(Stage.SCAN_AND_HUNT); return; }
+        if (shouldUseBoatAssist()
+                && ChatPilotClient.CONFIG.mysteryUseBoat
+                && chosenMarker != null
+                && com.grammacrackers.chatpilot.travel.BoatTravelHelper.tickBoatAssist(mc, chosenMarker)) {
+            return;
+        }
+        
         // Re-issue the goal if Baritone went idle without arriving.
         double dist2 = mc.player.getBlockPos().getSquaredDistance(chosenMarker);
         if (dist2 < ARRIVAL_DIST * ARRIVAL_DIST) {
