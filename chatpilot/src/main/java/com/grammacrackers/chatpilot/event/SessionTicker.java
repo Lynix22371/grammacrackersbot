@@ -45,12 +45,18 @@ public class SessionTicker {
         ensureChatStarted();
 
 
-        // before COMBAT.tick()
         if (ChatPilotClient.LAVA_ESCAPE != null && ChatPilotClient.LAVA_ESCAPE.tick(mc)) {
             ChatPilotClient.VOTES.tick();
             if (ChatPilotClient.DANCE != null) ChatPilotClient.DANCE.tick();
             return;
         }
+        
+        if (ChatPilotClient.WATER_ESCAPE != null && ChatPilotClient.WATER_ESCAPE.tick(mc)) {
+            ChatPilotClient.VOTES.tick();
+            if (ChatPilotClient.DANCE != null) ChatPilotClient.DANCE.tick();
+            return;
+        }
+        
         // Combat first
         ChatPilotClient.COMBAT.tick();
 
@@ -69,7 +75,11 @@ public class SessionTicker {
             ChatPilotClient.LOOK_WALKING.tick(mc);
         }
         
+        if (ChatPilotClient.UNSTUCK != null) {
+            ChatPilotClient.UNSTUCK.tick(mc);
+        }
         
+        ChatPilotClient.VOTES.tick();
 
         // Voting always ticks so it can open new windows when idle
         ChatPilotClient.VOTES.tick();

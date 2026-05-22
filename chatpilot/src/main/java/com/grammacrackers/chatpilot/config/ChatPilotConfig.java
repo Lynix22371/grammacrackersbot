@@ -22,6 +22,20 @@ public class ChatPilotConfig {
     public String youtubeBroadcastId = "";
     public int    youtubePollIntervalMs = 4000;
 
+    // === Unstuck voting ===
+    public boolean unstuckVoteEnabled = true;
+    public int unstuckVoteLookbackVotes = 3;
+    public double unstuckVoteMinDistanceBlocks = 10.0;
+    public int unstuckReturnTaskDurationSeconds = 30;
+
+    /**
+     * If air is this close above the player, assume normal surface swimming,
+     * not an underwater emergency.
+     */
+    public int waterEscapeIgnoreSurfaceDepthBlocks = 2;
+
+    public double lookWhereWalkingYawDeadzone = 8.0;
+
     // === Voting ===
     public int    voteWindowSeconds = 30;
     public int    minVotesToStart = 1;
@@ -47,14 +61,14 @@ public class ChatPilotConfig {
      * Visible camera turn speed while Baritone is simply walking.
      * Higher = snappier, lower = smoother.
      */
-    public double lookWhereWalkingMaxYawPerTick = 7.0;
-    public double lookWhereWalkingMaxPitchPerTick = 3.0;
+    public double lookWhereWalkingMaxYawPerTick = 3.0;
+    public double lookWhereWalkingMaxPitchPerTick = 2.0;
     
     /**
      * Slightly downward looks more natural on stream than pitch=0.
      * Use 0.0 if you want it to look exactly horizontally.
      */
-    public double lookWhereWalkingPitch = 8.0;
+    public double lookWhereWalkingPitch = 4.0;
     
     /**
      * Ignore tiny jitter when the player is not really moving.
@@ -101,6 +115,36 @@ public class ChatPilotConfig {
      */
     public int miningStagingArrivalRadius = 6;
 
+    // === Water escape ===
+    public boolean waterEscapeEnabled = true;
+    
+    /**
+     * How long the bot may keep its head underwater before emergency swimming starts.
+     * 60 ticks = 3 seconds.
+     */
+    public int waterEscapeSubmergedTicks = 600;
+    
+    /**
+     * Start emergency escape immediately if air drops below this.
+     * Vanilla max air is 300 ticks.
+     */
+    public int waterEscapeStartAirTicks = 300;
+    
+    /**
+     * Radius used to look for nearby water surface/air.
+     */
+    public int waterEscapeSurfaceSearchRadius = 16;
+    
+    /**
+     * Vertical scan height above the player.
+     */
+    public int waterEscapeSurfaceSearchHeight = 48;
+    
+    /**
+     * After this many escape ticks, also try Baritone's surface command once.
+     */
+    public int waterEscapeBaritoneSurfaceAfterTicks = 20 * 12;
+
     // === Reliability ===
     public int    stuckThresholdTicks = 300;
     public int    softRestartCooldownTicks = 100;
@@ -142,6 +186,18 @@ public class ChatPilotConfig {
     public int flintToolHotbarSlot = 0;
     public int flintCollectTimeoutTicks = 20 * 90;
     public int flintMineCycleTimeoutTicks = 20 * 45;
+
+
+
+    // === Flint / gravel retention ===
+    public boolean keepGravelForFlintTask = true;
+    
+    // === Combat weapons ===
+    public boolean combatUseBestWeapon = true;
+    public int combatWeaponHotbarSlot = 0;
+    public boolean combatPreferAxeOnTie = false;
+    
+
 
     // === Wood task target (legacy; vote slot 2 is Fishing in v1.2.0) ===
     public int    woodLogQuota = 32;

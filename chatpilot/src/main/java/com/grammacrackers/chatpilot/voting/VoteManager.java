@@ -89,6 +89,8 @@ public class VoteManager {
         voters.clear();
         votesOpenedSinceLaunch++;
 
+
+
         // Build the active option set for THIS round.
         activeOptions = new LinkedHashMap<>();
 
@@ -101,6 +103,9 @@ public class VoteManager {
         boolean offerMyst = shouldOfferMystery();
         
         int nextSlot = 5;
+        if (ChatPilotClient.UNSTUCK != null) {
+            ChatPilotClient.UNSTUCK.onVoteOpened();
+        }
         
         if (night) {
             String key = String.valueOf(nextSlot++);
@@ -121,6 +126,15 @@ public class VoteManager {
         } else {
             ChatPilotMod.LOGGER.info("[ChatPilot] Vote opened for {}s", ChatPilotClient.CONFIG.voteWindowSeconds);
         }
+        if (ChatPilotClient.UNSTUCK != null && ChatPilotClient.UNSTUCK.shouldOfferUnstuck()) {
+            String key = nextFreeVoteKey();
+            activeOptions.put(key, VoteOption.buildUnstuck(key));
+        
+            ChatPilotMod.LOGGER.warn(
+                    "[ChatPilot] Unstuck vote option added: {}",
+                    ChatPilotClient.UNSTUCK.debugSummary()
+            );
+        }
         
         for (String k : activeOptions.keySet()) {
             tally.put(k, 0);
@@ -131,6 +145,17 @@ public class VoteManager {
     private boolean shouldOfferMystery() {
         int n = Math.max(1, ChatPilotClient.CONFIG.mysteryEveryNVotes);
         return (votesOpenedSinceLaunch % n) == 0;
+    }
+    private String nextFreeVoteKey() {
+        for (int i = 1; i <= 9; i++) {
+            String key = String.valueOf(i);
+    
+            if (!activeOptions.containsKey(key)) {
+                return key;
+            }
+        }
+    
+        return "9";
     }
 
     /** True if the world's daytime is in the night window. */
@@ -206,6 +231,18 @@ public class VoteManager {
                 "grind"
         }) {
             ALIASES.put(w, "flint");
+        }
+        for (String w : new String[]{
+                "unstuck",
+                "stuck",
+                "reset",
+                "home",
+                "return",
+                "save",
+                "help",
+                "escape"
+        }) {
+            ALIASES.put(w, "unstuck");
         }
         
         // Mining option
@@ -289,6 +326,14 @@ public class VoteManager {
                 // Mystery slot is whichever active option's label is "Mystery".
                 for (var e : activeOptions.entrySet()) {
                     if ("Mystery".equalsIgnoreCase(e.getValue().label)) return e.getKey();
+                }
+                return null;
+            }
+            case "unstuck": {
+                for (var e : activeOptions.entrySet()) {
+                    if ("Unstuck".equalsIgnoreCase(e.getValue().label)) {
+                        return e.getKey();
+                    }
                 }
                 return null;
             }

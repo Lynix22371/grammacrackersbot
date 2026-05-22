@@ -23,12 +23,16 @@ import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.entity.ItemEntity;
+import net.minecraft.util.math.Box;
 
 public class FlintTask implements Task {
     private enum Stage {
         COLLECT_GRAVEL,
+        MOVE_TO_OPEN_SPACE,
         BUILD_COLUMN,
         MINE_COLUMN,
+        PICKUP_DROPS,
         DONE
     }
 
@@ -43,12 +47,26 @@ public class FlintTask implements Task {
     private int lastFlintCount;
     private int lastGravelCount;
     private int lastProgressTick;
+    private static final double PICKUP_RADIUS = 8.0;
+    private static final int PICKUP_TIMEOUT_TICKS = 20 * 12;
+    private BlockPos openSpaceTarget;
+    private int openSpaceAttempts;
+
+    private int pickupStartTick;
 
     private BlockPos columnBase;
 
+
     @Override
     public String displayName() {
-        return "Farming flint";
+        return switch (stage) {
+            case COLLECT_GRAVEL -> "Collecting gravel";
+            case MOVE_TO_OPEN_SPACE -> "Finding open space";
+            case BUILD_COLUMN -> "Building gravel column";
+            case MINE_COLUMN -> "Farming flint";
+            case PICKUP_DROPS -> "Picking up flint";
+            case DONE -> "Done";
+        };
     }
 
     @Override
@@ -80,16 +98,18 @@ public class FlintTask implements Task {
         int flint = countItem(mc.player, Items.FLINT);
         int target = Math.max(1, ChatPilotClient.CONFIG.flintTargetCount);
 
-        if (flint >= target) {
-            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Target reached: {}/{}", flint, target);
-            enterStage(Stage.DONE);
-            return true;
+        if (flint >= target && stage != Stage.PICKUP_DROPS && stage != Stage.DONE) {
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Target reached: {}/{}, picking up nearby drops", flint, target);
+            enterStage(Stage.PICKUP_DROPS);
+            return false;
         }
 
         switch (stage) {
             case COLLECT_GRAVEL -> tickCollectGravel(mc);
+            case MOVE_TO_OPEN_SPACE -> tickMoveToOpenSpace(mc);
             case BUILD_COLUMN -> tickBuildColumn(mc);
             case MINE_COLUMN -> tickMineColumn(mc);
+            case PICKUP_DROPS -> tickPickupDrops(mc);
             case DONE -> {
                 return true;
             }
@@ -142,8 +162,8 @@ public class FlintTask implements Task {
             airTicksAtBase = 0;
 
             if (columnBase == null) {
-                ChatPilotMod.LOGGER.info("[ChatPilot][Flint] No safe build spot, exploring a little");
-                ChatPilotClient.BARITONE.run("explore");
+                ChatPilotMod.LOGGER.info("[ChatPilot][Flint] No safe gravel-column spot here, moving to open space");
+                enterStage(Stage.MOVE_TO_OPEN_SPACE);
                 return;
             }
 
@@ -297,13 +317,26 @@ public class FlintTask implements Task {
                 placedHeight = 0;
                 ChatPilotClient.BARITONE.hardReset();
             }
+            case MOVE_TO_OPEN_SPACE -> {
+                ChatPilotClient.BARITONE.hardReset();
+                columnBase = null;
+                placedHeight = 0;
+                openSpaceTarget = null;
+            }
 
             case BUILD_COLUMN -> {
                 ChatPilotClient.BARITONE.hardReset();
                 placedHeight = 0;
+                openSpaceTarget = null;
             }
 
+
             case MINE_COLUMN -> ChatPilotClient.BARITONE.hardReset();
+
+            case PICKUP_DROPS -> {
+                ChatPilotClient.BARITONE.hardReset();
+                pickupStartTick = clientTick();
+            }
 
             case DONE -> ChatPilotClient.BARITONE.hardReset();
         }
@@ -324,9 +357,24 @@ public class FlintTask implements Task {
             return true;
         }
 
+        if (stage == Stage.MOVE_TO_OPEN_SPACE) {
+            openSpaceTarget = null;
+            columnBase = null;
+            placedHeight = 0;
+            enterStage(Stage.BUILD_COLUMN);
+            return true;
+        }
+
+        if (stage == Stage.PICKUP_DROPS) {
+            releaseKeys();
+            enterStage(Stage.DONE);
+            return true;
+        }
+
         columnBase = null;
         placedHeight = 0;
-        enterStage(Stage.BUILD_COLUMN);
+        openSpaceTarget = null;
+        enterStage(Stage.MOVE_TO_OPEN_SPACE);
         return true;
     }
 
@@ -438,6 +486,233 @@ public class FlintTask implements Task {
         if (bestSlot >= 0) {
             selectInventorySlot(mc, bestSlot, ChatPilotClient.CONFIG.flintToolHotbarSlot);
         }
+    }
+    private void tickPickupDrops(MinecraftClient mc) {
+        ChatPilotClient.BARITONE.stop();
+
+        ItemEntity nearest = findNearestFlintOrGravelDrop(mc);
+
+        if (nearest == null) {
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] No nearby flint/gravel drops left, finishing");
+            releaseKeys();
+            enterStage(Stage.DONE);
+            return;
+        }
+
+        if (clientTick() - pickupStartTick > PICKUP_TIMEOUT_TICKS) {
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Pickup timeout, finishing anyway");
+            releaseKeys();
+            enterStage(Stage.DONE);
+            return;
+        }
+
+        lookAt(mc.player, nearest.getPos());
+
+        double dist2 = mc.player.squaredDistanceTo(nearest);
+
+        mc.options.forwardKey.setPressed(true);
+        mc.options.sprintKey.setPressed(false);
+        mc.options.backKey.setPressed(false);
+
+        // Small wiggle helps if the item is on the edge of a block.
+        boolean wiggleLeft = ((clientTick() / 10) % 2) == 0;
+        mc.options.leftKey.setPressed(dist2 < 2.0 && wiggleLeft);
+        mc.options.rightKey.setPressed(dist2 < 2.0 && !wiggleLeft);
+    }
+    private static ItemEntity findNearestFlintOrGravelDrop(MinecraftClient mc) {
+        if (mc == null || mc.player == null || mc.world == null) return null;
+
+        Box box = mc.player.getBoundingBox().expand(PICKUP_RADIUS);
+
+        ItemEntity best = null;
+        double bestDist = PICKUP_RADIUS * PICKUP_RADIUS;
+
+        for (ItemEntity item : mc.world.getEntitiesByClass(ItemEntity.class, box, FlintTask::isWantedDrop)) {
+            double d = item.squaredDistanceTo(mc.player);
+
+            if (d < bestDist) {
+                bestDist = d;
+                best = item;
+            }
+        }
+
+        return best;
+    }
+
+    private static BlockPos findOpenBuildStandPos(MinecraftClient mc, int columnHeight) {
+        if (mc == null || mc.player == null || mc.world == null) return null;
+
+        BlockPos origin = mc.player.getBlockPos();
+
+        for (int radius = 4; radius <= 24; radius += 4) {
+            for (int dy = -4; dy <= 6; dy++) {
+                for (int dx = -radius; dx <= radius; dx++) {
+                    for (int dz = -radius; dz <= radius; dz++) {
+                        if (Math.abs(dx) != radius && Math.abs(dz) != radius) continue;
+
+                        BlockPos stand = origin.add(dx, dy, dz);
+
+                        if (!isGoodFlintStandSpot(mc, stand, columnHeight)) {
+                            continue;
+                        }
+
+                        return stand.toImmutable();
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static boolean isGoodFlintStandSpot(MinecraftClient mc, BlockPos stand, int columnHeight) {
+        if (!isSafeStandSpot(mc, stand)) return false;
+
+        // Need some breathing room around the bot, not just a 1-wide tunnel.
+        int clear = 0;
+
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                BlockPos feet = stand.add(dx, 0, dz);
+                BlockPos head = feet.up();
+
+                if (mc.world.isAir(feet) && mc.world.isAir(head)
+                        && mc.world.getFluidState(feet).isEmpty()
+                        && mc.world.getFluidState(head).isEmpty()) {
+                    clear++;
+                }
+            }
+        }
+
+        if (clear < 6) return false;
+
+        return hasValidColumnBaseNearStand(mc, stand, columnHeight);
+    }
+
+    private static boolean hasValidColumnBaseNearStand(MinecraftClient mc, BlockPos stand, int height) {
+        for (int dx = -4; dx <= 4; dx++) {
+            for (int dz = -4; dz <= 4; dz++) {
+                if (Math.abs(dx) + Math.abs(dz) < 2) continue;
+
+                BlockPos base = stand.add(dx, 0, dz);
+
+                if (isValidColumnBaseForStand(mc, stand, base, height)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static boolean isValidColumnBaseForStand(MinecraftClient mc, BlockPos stand, BlockPos base, int height) {
+        BlockPos floor = base.down();
+
+        if (mc.world.getBlockState(floor).getCollisionShape(mc.world, floor).isEmpty()) {
+            return false;
+        }
+
+        if (!mc.world.getFluidState(base).isEmpty()) {
+            return false;
+        }
+
+        for (int i = 0; i < height; i++) {
+            BlockPos p = base.up(i);
+
+            if (!mc.world.isAir(p) && !isGravel(mc, p)) {
+                return false;
+            }
+
+            if (!mc.world.getFluidState(p).isEmpty()) {
+                return false;
+            }
+        }
+
+        // Approximate reach from where the player will stand.
+        Vec3d eye = Vec3d.ofBottomCenter(stand).add(0.0, 1.62, 0.0);
+        return eye.squaredDistanceTo(Vec3d.ofCenter(base)) <= 20.25;
+    }
+
+    private static boolean isSafeStandSpot(MinecraftClient mc, BlockPos feet) {
+        if (mc.world == null) return false;
+
+        BlockPos head = feet.up();
+        BlockPos floor = feet.down();
+
+        if (!mc.world.getBlockState(feet).getCollisionShape(mc.world, feet).isEmpty()) {
+            return false;
+        }
+
+        if (!mc.world.getBlockState(head).getCollisionShape(mc.world, head).isEmpty()) {
+            return false;
+        }
+
+        if (mc.world.getBlockState(floor).getCollisionShape(mc.world, floor).isEmpty()) {
+            return false;
+        }
+
+        if (!mc.world.getFluidState(feet).isEmpty()) return false;
+        if (!mc.world.getFluidState(head).isEmpty()) return false;
+
+        return true;
+    }
+
+    private void tickMoveToOpenSpace(MinecraftClient mc) {
+        int height = Math.max(1, Math.min(4, ChatPilotClient.CONFIG.flintTowerHeight));
+
+        if (openSpaceTarget == null) {
+            openSpaceTarget = findOpenBuildStandPos(mc, height);
+
+            if (openSpaceTarget == null) {
+                openSpaceAttempts++;
+
+                ChatPilotMod.LOGGER.info(
+                        "[ChatPilot][Flint] Could not find open flint area nearby, exploring ({})",
+                        openSpaceAttempts
+                );
+
+                ChatPilotClient.BARITONE.run("explore");
+
+                if (ticksInStage() > 20 * 8) {
+                    enterStage(Stage.BUILD_COLUMN);
+                }
+
+                return;
+            }
+
+            ChatPilotMod.LOGGER.info(
+                    "[ChatPilot][Flint] Walking to open flint build area at {}",
+                    openSpaceTarget
+            );
+
+            ChatPilotClient.BARITONE.gotoNear(openSpaceTarget, 2);
+        }
+
+        if (mc.player.getBlockPos().getSquaredDistance(openSpaceTarget) <= 4.0) {
+            ChatPilotClient.BARITONE.hardReset();
+            enterStage(Stage.BUILD_COLUMN);
+            return;
+        }
+
+        if (ticksInStage() > 20 * 20) {
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Open-space walk timed out, trying another spot");
+            openSpaceTarget = null;
+            enterStage(Stage.MOVE_TO_OPEN_SPACE);
+            return;
+        }
+
+        if (!ChatPilotClient.BARITONE.isPathing()) {
+            ChatPilotClient.BARITONE.gotoNear(openSpaceTarget, 2);
+        }
+    }
+
+    private static boolean isWantedDrop(ItemEntity item) {
+        if (item == null || !item.isAlive()) return false;
+
+        ItemStack stack = item.getStack();
+
+        return !stack.isEmpty()
+                && (stack.isOf(Items.FLINT) || stack.isOf(Items.GRAVEL));
     }
 
     private static double flintToolScore(ItemStack stack) {
