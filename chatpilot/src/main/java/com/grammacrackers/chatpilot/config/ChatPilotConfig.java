@@ -179,6 +179,23 @@ public class ChatPilotConfig {
     public int flintCollectTimeoutTicks = 20 * 90;
     public int flintMineCycleTimeoutTicks = 20 * 45;
 
+
+
+    // === Flint / gravel retention ===
+    public boolean keepGravelForFlintTask = true;
+    
+    // === Combat weapons ===
+    public boolean combatUseBestWeapon = true;
+    public int combatWeaponHotbarSlot = 0;
+    public boolean combatPreferAxeOnTie = false;
+    
+    // === Mystery boat travel ===
+    public boolean mysteryUseBoat = true;
+    public boolean mysteryCraftBoatIfMissing = false;
+    public int mysteryBoatMinTravelDistance = 80;
+    public int mysteryBoatWaterLookahead = 10;
+    public int mysteryBoatPrepTimeoutTicks = 20 * 20;
+
     // === Wood task target (legacy; vote slot 2 is Fishing in v1.2.0) ===
     public int    woodLogQuota = 32;
 
