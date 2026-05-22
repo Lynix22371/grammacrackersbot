@@ -25,6 +25,7 @@ import com.grammacrackers.chatpilot.safety.LavaEscapeManager;
 import com.grammacrackers.chatpilot.chat.OreDemandTracker;
 import com.grammacrackers.chatpilot.movement.LookWhereWalkingManager;
 import com.grammacrackers.chatpilot.safety.WaterEscapeManager;
+import com.grammacrackers.chatpilot.voting.UnstuckVoteTracker;
 
 public class ChatPilotClient implements ClientModInitializer {
 
@@ -45,6 +46,7 @@ public class ChatPilotClient implements ClientModInitializer {
     public static OreDemandTracker ORE_DEMAND;
     public static LookWhereWalkingManager LOOK_WALKING;
     public static WaterEscapeManager WATER_ESCAPE;
+    public static UnstuckVoteTracker UNSTUCK;
 
     /** v1.1.0: persistent record of explored structures so Explore/Mystery never repeat. */
     public static VisitedStructuresManager VISITED;
@@ -64,6 +66,7 @@ public class ChatPilotClient implements ClientModInitializer {
         COMBAT    = new CombatHandler();
         TASKS     = new TaskManager();
         VOTES     = new VoteManager();
+        UNSTUCK = new UnstuckVoteTracker();
         HUD       = new HudOverlay();
         RESTREAM  = new RestreamClient();
         YOUTUBE   = new YouTubeChatPoller();
