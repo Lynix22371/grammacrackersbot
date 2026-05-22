@@ -22,6 +22,7 @@ import com.grammacrackers.chatpilot.tasks.MiningTask;
 import com.grammacrackers.chatpilot.tasks.MysteryTask;
 import com.grammacrackers.chatpilot.tasks.SleepTask;
 import com.grammacrackers.chatpilot.tasks.Task;
+import com.grammacrackers.chatpilot.tasks.UnstuckTask;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -60,4 +61,7 @@ public class VoteOption {
     public static VoteOption buildMystery(String key) {
         return new VoteOption(key, "Mystery", "?", 0xFFC084FC, MysteryTask::new);
     }
+     public static VoteOption buildUnstuck(String key) {
+         return new VoteOption(key, "Unstuck", "!", 0xFFFF5555, UnstuckTask::new);
+     }
 }
