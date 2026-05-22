@@ -22,6 +22,12 @@ public class ChatPilotConfig {
     public String youtubeBroadcastId = "";
     public int    youtubePollIntervalMs = 4000;
 
+    // === Unstuck voting ===
+    public boolean unstuckVoteEnabled = true;
+    public int unstuckVoteLookbackVotes = 3;
+    public double unstuckVoteMinDistanceBlocks = 10.0;
+    public int unstuckReturnTaskDurationSeconds = 30;
+
     // === Voting ===
     public int    voteWindowSeconds = 30;
     public int    minVotesToStart = 1;
