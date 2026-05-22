@@ -73,7 +73,7 @@ public class MiningTask implements Task {
 
 
 
-        private static int countOreDrop(PlayerEntity p, OreDemandTracker.OreTarget target) {
+    private static int countOreDrop(PlayerEntity p, OreDemandTracker.OreTarget target) {
         return switch (target) {
             case DIAMOND -> countItem(p, Items.DIAMOND);
             case IRON -> countItem(p, Items.RAW_IRON);
@@ -88,6 +88,7 @@ public class MiningTask implements Task {
 
     @Override public String displayName() { return "Mining ores"; }
     @Override public String id() { return "mine"; }
+
 
 
     @Override
@@ -108,16 +109,6 @@ public class MiningTask implements Task {
     
         enterStage(Stage.GO_TO_STAGING);
     
-        ChatPilotMod.LOGGER.info("[ChatPilot] Mining started at {}", mc.player.getBlockPos());
-    }
-        
-        ChatPilotClient.BARITONE.hardReset();
-
-        miningStagingPos = null;
-        chatTarget = null;
-        
-        enterStage(Stage.GO_TO_STAGING);
-        
         ChatPilotMod.LOGGER.info("[ChatPilot] Mining started at {}", mc.player.getBlockPos());
     }
 
