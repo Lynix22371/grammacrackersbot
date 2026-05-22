@@ -24,6 +24,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import com.grammacrackers.chatpilot.safety.LavaEscapeManager;
 import com.grammacrackers.chatpilot.chat.OreDemandTracker;
 import com.grammacrackers.chatpilot.movement.LookWhereWalkingManager;
+import com.grammacrackers.chatpilot.safety.WaterEscapeManager;
 
 public class ChatPilotClient implements ClientModInitializer {
 
@@ -43,6 +44,7 @@ public class ChatPilotClient implements ClientModInitializer {
     public static LavaEscapeManager LAVA_ESCAPE;
     public static OreDemandTracker ORE_DEMAND;
     public static LookWhereWalkingManager LOOK_WALKING;
+    public static WaterEscapeManager WATER_ESCAPE;
 
     /** v1.1.0: persistent record of explored structures so Explore/Mystery never repeat. */
     public static VisitedStructuresManager VISITED;
@@ -68,6 +70,7 @@ public class ChatPilotClient implements ClientModInitializer {
         VISITED   = new VisitedStructuresManager();
         DANCE     = new DanceManager();
         LAVA_ESCAPE = new LavaEscapeManager();
+        WATER_ESCAPE = new WaterEscapeManager();
         ORE_DEMAND = new OreDemandTracker();
         LOOK_WALKING = new LookWhereWalkingManager();
 
