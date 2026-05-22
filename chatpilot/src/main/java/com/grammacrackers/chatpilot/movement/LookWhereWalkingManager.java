@@ -8,6 +8,10 @@ import net.minecraft.util.math.Vec3d;
 public class LookWhereWalkingManager {
     private Vec3d lastPos = null;
     private int stillTicks = 0;
+    private double avgDx = 0.0;
+    private double avgDz = 0.0;
+    private int movingTicks = 0;
+ 
 
     public void tick(MinecraftClient mc) {
         if (mc == null || mc.player == null || mc.world == null) {
@@ -49,20 +53,48 @@ public class LookWhereWalkingManager {
         Vec3d delta = now.subtract(lastPos);
         lastPos = now;
 
-        double dx = delta.x;
-        double dz = delta.z;
-        double speedSq = dx * dx + dz * dz;
+ 
 
-        // Ignore tiny movement jitter.
+        double rawDx = delta.x;
+        double rawDz = delta.z;
+        double rawSpeedSq = rawDx * rawDx + rawDz * rawDz;
+
         double minSpeed = Math.max(0.001, ChatPilotClient.CONFIG.lookWhereWalkingMinSpeed);
-        if (speedSq < minSpeed * minSpeed) {
-            stillTicks++;
+
+        if (rawSpeedSq < minSpeed * minSpeed) {
+            movingTicks = 0;
+            avgDx *= 0.90;
+            avgDz *= 0.90;
             return;
         }
+
+        movingTicks++;
+
+        avgDx = avgDx * 0.92 + rawDx * 0.08;
+        avgDz = avgDz * 0.92 + rawDz * 0.08;
+
+        if (movingTicks < 10) {
+            return;
+        }
+
+        double dx = avgDx;
+        double dz = avgDz;
+        double speedSq = dx * dx + dz * dz;
+
+        if (speedSq < minSpeed * minSpeed) {
+            return;
+        }
+     
 
         stillTicks = 0;
 
         float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
+        float yawDiff = wrapDegrees(targetYaw - p.getYaw());
+
+        // Ignore tiny direction changes. This stops left/right shaking.
+        if (Math.abs(yawDiff) < ChatPilotClient.CONFIG.lookWhereWalkingYawDeadzone) {
+            return;
+        }
         float targetPitch = (float) ChatPilotClient.CONFIG.lookWhereWalkingPitch;
 
         float maxYawStep = (float) Math.max(1.0, ChatPilotClient.CONFIG.lookWhereWalkingMaxYawPerTick);
@@ -73,7 +105,6 @@ public class LookWhereWalkingManager {
 
         p.setYaw(newYaw);
         p.setHeadYaw(newYaw);
-        p.setBodyYaw(newYaw);
         p.setPitch(newPitch);
     }
 
