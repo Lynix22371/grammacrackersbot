@@ -32,19 +32,37 @@ public class WaterEscapeManager {
 
         ClientPlayerEntity p = mc.player;
 
+
+        // Do not fight boat travel.
+        if (p.hasVehicle()) {
+            reset(mc);
+            return false;
+        }
+
         boolean headInWater = isHeadInWater(mc);
         boolean bodyInWater = isBodyInWater(mc);
 
-        if (headInWater) {
+        // Surface swimming is normal. Only count as "submerged" if the nearest air
+        // above the player is not immediately reachable.
+        int airAbove = blocksToAirAbove(mc, p.getBlockPos(), 8);
+        boolean nearSurface = airAbove >= 0 && airAbove <= ChatPilotClient.CONFIG.waterEscapeIgnoreSurfaceDepthBlocks;
+
+        if (headInWater && !nearSurface) {
             submergedTicks++;
         } else {
             submergedTicks = 0;
         }
 
         boolean airLow = p.getAir() <= ChatPilotClient.CONFIG.waterEscapeStartAirTicks;
+
+        // Emergency only if:
+        // 1) head is in water,
+        // 2) not just surface swimming,
+        // 3) either submerged for a while OR oxygen is actually low.
         boolean shouldEscape =
-                headInWater &&
-                (submergedTicks >= ChatPilotClient.CONFIG.waterEscapeSubmergedTicks || airLow);
+                headInWater
+                && !nearSurface
+                && (submergedTicks >= ChatPilotClient.CONFIG.waterEscapeSubmergedTicks || airLow);
 
         if (!shouldEscape && !escaping) {
             return false;
@@ -222,5 +240,18 @@ public class WaterEscapeManager {
         player.setHeadYaw(yaw);
         player.setBodyYaw(yaw);
         player.setPitch(pitch);
+    }
+    private static int blocksToAirAbove(MinecraftClient mc, BlockPos origin, int maxUp) {
+        if (mc == null || mc.world == null) return -1;
+
+        for (int dy = 0; dy <= maxUp; dy++) {
+            BlockPos p = origin.up(dy);
+
+            if (mc.world.getBlockState(p).isAir() && mc.world.getFluidState(p).isEmpty()) {
+                return dy;
+            }
+        }
+
+        return -1;
     }
 }
