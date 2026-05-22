@@ -28,6 +28,14 @@ public class ChatPilotConfig {
     public double unstuckVoteMinDistanceBlocks = 10.0;
     public int unstuckReturnTaskDurationSeconds = 30;
 
+    /**
+     * If air is this close above the player, assume normal surface swimming,
+     * not an underwater emergency.
+     */
+    public int waterEscapeIgnoreSurfaceDepthBlocks = 2;
+
+    public double lookWhereWalkingYawDeadzone = 8.0;
+
     // === Voting ===
     public int    voteWindowSeconds = 30;
     public int    minVotesToStart = 1;
@@ -53,14 +61,14 @@ public class ChatPilotConfig {
      * Visible camera turn speed while Baritone is simply walking.
      * Higher = snappier, lower = smoother.
      */
-    public double lookWhereWalkingMaxYawPerTick = 7.0;
-    public double lookWhereWalkingMaxPitchPerTick = 3.0;
+    public double lookWhereWalkingMaxYawPerTick = 3.0;
+    public double lookWhereWalkingMaxPitchPerTick = 2.0;
     
     /**
      * Slightly downward looks more natural on stream than pitch=0.
      * Use 0.0 if you want it to look exactly horizontally.
      */
-    public double lookWhereWalkingPitch = 8.0;
+    public double lookWhereWalkingPitch = 4.0;
     
     /**
      * Ignore tiny jitter when the player is not really moving.
