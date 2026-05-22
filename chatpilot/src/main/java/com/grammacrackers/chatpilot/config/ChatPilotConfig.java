@@ -101,6 +101,36 @@ public class ChatPilotConfig {
      */
     public int miningStagingArrivalRadius = 6;
 
+    // === Water escape ===
+    public boolean waterEscapeEnabled = true;
+    
+    /**
+     * How long the bot may keep its head underwater before emergency swimming starts.
+     * 60 ticks = 3 seconds.
+     */
+    public int waterEscapeSubmergedTicks = 600;
+    
+    /**
+     * Start emergency escape immediately if air drops below this.
+     * Vanilla max air is 300 ticks.
+     */
+    public int waterEscapeStartAirTicks = 300;
+    
+    /**
+     * Radius used to look for nearby water surface/air.
+     */
+    public int waterEscapeSurfaceSearchRadius = 16;
+    
+    /**
+     * Vertical scan height above the player.
+     */
+    public int waterEscapeSurfaceSearchHeight = 48;
+    
+    /**
+     * After this many escape ticks, also try Baritone's surface command once.
+     */
+    public int waterEscapeBaritoneSurfaceAfterTicks = 20 * 12;
+
     // === Reliability ===
     public int    stuckThresholdTicks = 300;
     public int    softRestartCooldownTicks = 100;
