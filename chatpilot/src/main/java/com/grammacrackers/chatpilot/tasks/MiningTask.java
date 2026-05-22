@@ -7,6 +7,7 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import com.grammacrackers.chatpilot.chat.OreDemandTracker;
+import net.minecraft.util.math.BlockPos;
 
 /**
  * Mining task. v1.2.0 refocus on emerald, gold, and coal.
@@ -45,10 +46,6 @@ public class MiningTask implements Task {
         DONE
     }
 
-    private enum Stage { EMERALD, EMERALD_EXPLORE,
-                         GOLD,    GOLD_EXPLORE,
-                         COAL,    COAL_EXPLORE,
-                         STONE_FALLBACK, DONE }
 
     /** Tracks which ore type is "active" so we know when to reset cycle counters. */
     private enum OreType { EMERALD, GOLD, COAL, NONE }
@@ -92,30 +89,27 @@ public class MiningTask implements Task {
     @Override public String displayName() { return "Mining ores"; }
     @Override public String id() { return "mine"; }
 
+
     @Override
     public void start() {
         var mc = MinecraftClient.getInstance();
         if (mc.player == null) return;
+    
         emeraldStart = countItem(mc.player, Items.EMERALD);
         goldStart    = countItem(mc.player, Items.RAW_GOLD);
         coalStart    = countItem(mc.player, Items.COAL);
+    
         ChatPilotClient.BARITONE.hardReset();
+    
+        miningStagingPos = null;
         chatTarget = null;
-
-        if (ChatPilotClient.CONFIG.miningUseChatDemand && ChatPilotClient.ORE_DEMAND != null) {
-            chatTarget = ChatPilotClient.ORE_DEMAND.getMostRequestedOre();
-        
-            if (chatTarget != null) {
-                chatTargetStartCount = countOreDrop(mc.player, chatTarget);
-                ChatPilotMod.LOGGER.info(
-                        "[ChatPilot] Chat-selected mining target: {} scores={}",
-                        chatTarget.id,
-                        ChatPilotClient.ORE_DEMAND.snapshotScores()
-                );
-                enterStage(Stage.CHAT_REQUESTED);
-                return;
-            }
-        }
+        currentOre = OreType.NONE;
+        exploreCycles = 0;
+    
+        enterStage(Stage.GO_TO_STAGING);
+    
+        ChatPilotMod.LOGGER.info("[ChatPilot] Mining started at {}", mc.player.getBlockPos());
+    }
         
         ChatPilotClient.BARITONE.hardReset();
 
@@ -212,6 +206,11 @@ public class MiningTask implements Task {
     }
 
     private void startActualMining(MinecraftClient mc) {
+        if (mc == null || mc.player == null) {
+            enterStage(Stage.DONE);
+            return;
+        }
+    
         chatTarget = null;
     
         if (ChatPilotClient.CONFIG.miningUseChatDemand && ChatPilotClient.ORE_DEMAND != null) {
@@ -336,6 +335,11 @@ public class MiningTask implements Task {
         stageStartTick = clientTick();
         lastProgressTick = clientTick();
         lastProgressCount = 0;
+
+
+        if (next == Stage.CHAT_REQUESTED) {
+            exploreCycles = 0;
+        }
         ChatPilotClient.BARITONE.hardReset();
         switch (next) {
             case CHAT_REQUESTED -> {
