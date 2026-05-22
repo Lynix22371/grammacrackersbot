@@ -75,7 +75,11 @@ public class SessionTicker {
             ChatPilotClient.LOOK_WALKING.tick(mc);
         }
         
+        if (ChatPilotClient.UNSTUCK != null) {
+            ChatPilotClient.UNSTUCK.tick(mc);
+        }
         
+        ChatPilotClient.VOTES.tick();
 
         // Voting always ticks so it can open new windows when idle
         ChatPilotClient.VOTES.tick();
