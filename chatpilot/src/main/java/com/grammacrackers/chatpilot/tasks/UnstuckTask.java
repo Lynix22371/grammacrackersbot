@@ -15,6 +15,20 @@ public class UnstuckTask implements Task {
     }
 
     @Override
+    public void onCombatStart() {
+        if (ChatPilotClient.BARITONE != null) {
+            ChatPilotClient.BARITONE.hardReset();
+        }
+    }
+    
+    @Override
+    public void onCombatEnd() {
+        if (ChatPilotClient.BARITONE != null) {
+            ChatPilotClient.BARITONE.hardReset();
+        }
+    }
+
+    @Override
     public void start() {
         ChatPilotMod.LOGGER.warn("[ChatPilot][Unstuck] Chat voted for emergency reset + return home");
 
