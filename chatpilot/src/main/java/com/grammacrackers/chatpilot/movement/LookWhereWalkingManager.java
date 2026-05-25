@@ -9,13 +9,10 @@ import net.minecraft.util.math.Vec3d;
 /**
  * Drives the camera the way a real player would.
  *
- * Baritone's own camera control (freeLook) is handed off to this manager
- * whenever Baritone is active - walking OR mining - so Baritone never
- * hard-snaps the visible view to each block it targets. This manager then
- * turns the head smoothly:
- *   - Walking: track the path a short distance ahead.
- *   - Mining: settle to a calm, slightly downward view and hold it, instead of
- *     jerking the camera around to every block being broken.
+ * Baritone's freeLook is handed to this manager whenever Baritone is active
+ * (walking OR mining) so Baritone never hard-snaps the view. This manager then
+ * turns the head smoothly toward where the bot is going - along the walking
+ * path, or toward whatever it is mining.
  */
 public class LookWhereWalkingManager {
 
@@ -23,15 +20,12 @@ public class LookWhereWalkingManager {
     private static final float YAW_FOLLOW = 0.40f;
     private static final float PITCH_FOLLOW = 0.30f;
 
-    /** Peak turn speed in degrees per tick - the cap reached on sharp corners. */
+    /** Peak turn speed in degrees per tick. */
     private static final float MAX_YAW_SPEED = 18.0f;
     private static final float MAX_PITCH_SPEED = 6.0f;
 
     /** Below this yaw error the view is treated as already on-target. */
     private static final float SNAP_DEGREES = 0.1f;
-
-    /** Calm downward pitch eased to (and held) while mining. */
-    private static final float MINING_PITCH = 45.0f;
 
     public void tick(MinecraftClient mc) {
         if (mc == null || mc.player == null || mc.world == null) {
@@ -43,12 +37,8 @@ public class LookWhereWalkingManager {
         boolean baritoneActive = ChatPilotClient.BARITONE != null && ChatPilotClient.BARITONE.isActive();
         boolean mining = ChatPilotClient.BARITONE != null && ChatPilotClient.BARITONE.isMining();
 
-        /*
-         * Hand the camera to this smooth controller whenever Baritone is active
-         * - walking OR mining. With freeLook = true Baritone keeps its
-         * rotations internal (for raytracing) and never hard-snaps the visible
-         * view, which is what made the camera jerk around while digging.
-         */
+        // Hand the camera to this smooth controller whenever Baritone is active
+        // - walking OR mining - so Baritone never hard-snaps the view.
         if (ChatPilotClient.BARITONE != null) {
             ChatPilotClient.BARITONE.setFreeLook(enabled && baritoneActive);
         }
@@ -75,13 +65,59 @@ public class LookWhereWalkingManager {
     }
 
     /**
-     * Mining: ease to a calm, slightly downward view and hold it. The yaw is
-     * left where it is - the goal is simply to STOP the rapid per-block
-     * rotation, not to chase each block.
+     * Mining: smoothly aim at the point a short way ahead on Baritone's mining
+     * path - in full 3D, so it looks down when digging down and along the
+     * tunnel when branch-mining. When there is no path (breaking a block in
+     * place) the view is simply held. freeLook keeps Baritone from snapping it.
      */
     private void tickMiningCamera(ClientPlayerEntity p) {
-        float pitchDiff = MINING_PITCH - p.getPitch();
-        float pitchStep = clamp(pitchDiff * PITCH_FOLLOW, -MAX_PITCH_SPEED, MAX_PITCH_SPEED);
+        BlockPos target = ChatPilotClient.BARITONE.getPathLookaheadTarget(
+                ChatPilotClient.CONFIG.lookWhereWalkingPathLookaheadBlocks
+        );
+
+        if (target == null) {
+            return;
+        }
+
+        Vec3d eye = p.getEyePos();
+        Vec3d tc = Vec3d.ofCenter(target);
+
+        double dx = tc.x - eye.x;
+        double dy = tc.y - eye.y;
+        double dz = tc.z - eye.z;
+        double horiz = Math.sqrt(dx * dx + dz * dz);
+
+        // Target basically on top of the bot - no stable bearing, hold.
+        if (horiz < 1.0 && Math.abs(dy) < 1.0) {
+            return;
+        }
+
+        if (targetBehindMovement(p, dx, dz)) {
+            return;
+        }
+
+        // Yaw: only track it when there is enough horizontal offset for a
+        // stable bearing (digging straight down has none - keep the yaw).
+        if (horiz >= 1.0) {
+            float desiredYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
+            float yawDiff = wrapDegrees(desiredYaw - p.getYaw());
+
+            float newYaw;
+            if (Math.abs(yawDiff) <= SNAP_DEGREES) {
+                newYaw = wrapDegrees(desiredYaw);
+            } else {
+                float step = clamp(yawDiff * YAW_FOLLOW, -MAX_YAW_SPEED, MAX_YAW_SPEED);
+                newYaw = wrapDegrees(p.getYaw() + step);
+            }
+
+            p.setYaw(newYaw);
+            p.setHeadYaw(newYaw);
+        }
+
+        float desiredPitch = (float) (-Math.toDegrees(Math.atan2(dy, Math.max(horiz, 0.1))));
+        desiredPitch = clamp(desiredPitch, -25.0f, 80.0f);
+        float pitchStep = clamp((desiredPitch - p.getPitch()) * PITCH_FOLLOW,
+                -MAX_PITCH_SPEED, MAX_PITCH_SPEED);
         p.setPitch(p.getPitch() + pitchStep);
     }
 
@@ -104,8 +140,11 @@ public class LookWhereWalkingManager {
 
         double minDist = Math.max(2.0, ChatPilotClient.CONFIG.lookWhereWalkingGoalMinDistance);
 
-        // Too close to the look-ahead point to read a stable bearing - hold.
         if (horizontalDistSq < minDist * minDist) {
+            return;
+        }
+
+        if (targetBehindMovement(p, dx, dz)) {
             return;
         }
 
@@ -121,16 +160,29 @@ public class LookWhereWalkingManager {
         }
 
         float targetPitch = (float) ChatPilotClient.CONFIG.lookWhereWalkingPitch;
-        float pitchDiff = targetPitch - p.getPitch();
-        float pitchStep = clamp(pitchDiff * PITCH_FOLLOW, -MAX_PITCH_SPEED, MAX_PITCH_SPEED);
+        float pitchStep = clamp((targetPitch - p.getPitch()) * PITCH_FOLLOW,
+                -MAX_PITCH_SPEED, MAX_PITCH_SPEED);
         float newPitch = p.getPitch() + pitchStep;
 
         p.setYaw(newYaw);
         p.setHeadYaw(newYaw);
         p.setPitch(newPitch);
+    }
 
-        // Do NOT call p.setBodyYaw - the body keeps following Baritone's
-        // movement direction; only the head/camera turns ahead.
+    /**
+     * True if the look-at target is behind the bot's actual direction of
+     * travel. Used to stop the camera whipping around to look backward (e.g.
+     * toward home) when a stale or odd path target gets computed.
+     */
+    private static boolean targetBehindMovement(ClientPlayerEntity p, double dx, double dz) {
+        Vec3d vel = p.getVelocity();
+        double velSq = vel.x * vel.x + vel.z * vel.z;
+
+        if (velSq < 0.01) {
+            return false;   // not moving meaningfully - aim normally
+        }
+
+        return (dx * vel.x + dz * vel.z) < 0.0;
     }
 
     private boolean shouldSkip(MinecraftClient mc, ClientPlayerEntity p) {

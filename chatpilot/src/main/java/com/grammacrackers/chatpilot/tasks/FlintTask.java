@@ -243,13 +243,9 @@ public class FlintTask implements Task {
         }
 
         if (ticksInStage() > ChatPilotClient.CONFIG.flintMineCycleTimeoutTicks) {
-            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Mine cycle timeout, rebuilding/collecting");
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Mine cycle timeout, collecting drops");
             columnBase = null;
-            if (countItem(mc.player, Items.GRAVEL) > 0) {
-                enterStage(Stage.BUILD_COLUMN);
-            } else {
-                enterStage(Stage.COLLECT_GRAVEL);
-            }
+            enterStage(Stage.PICKUP_DROPS);
             return;
         }
 
@@ -257,11 +253,9 @@ public class FlintTask implements Task {
             airTicksAtBase++;
 
             if (airTicksAtBase > 15) {
-                if (countItem(mc.player, Items.GRAVEL) > 0) {
-                    enterStage(Stage.BUILD_COLUMN);
-                } else {
-                    enterStage(Stage.COLLECT_GRAVEL);
-                }
+                // Column mined out - go pick up the flint/gravel it dropped
+                // before doing anything else, so nothing is left behind.
+                enterStage(Stage.PICKUP_DROPS);
             }
 
             return;
@@ -366,8 +360,7 @@ public class FlintTask implements Task {
         }
 
         if (stage == Stage.PICKUP_DROPS) {
-            releaseKeys();
-            enterStage(Stage.DONE);
+            advanceFromPickup(MinecraftClient.getInstance());
             return true;
         }
 
@@ -487,22 +480,41 @@ public class FlintTask implements Task {
             selectInventorySlot(mc, bestSlot, ChatPilotClient.CONFIG.flintToolHotbarSlot);
         }
     }
+    /**
+     * Called after a drop-collection pass. If the flint target is met the task
+     * finishes; otherwise it loops back to mining another column. This makes
+     * drop pickup happen after EVERY column, so flint/gravel is never left
+     * scattered behind when the task ends.
+     */
+    private void advanceFromPickup(MinecraftClient mc) {
+        releaseKeys();
+
+        int flint = countItem(mc.player, Items.FLINT);
+        int target = Math.max(1, ChatPilotClient.CONFIG.flintTargetCount);
+
+        if (flint >= target) {
+            enterStage(Stage.DONE);
+        } else if (countItem(mc.player, Items.GRAVEL) > 0) {
+            enterStage(Stage.BUILD_COLUMN);
+        } else {
+            enterStage(Stage.COLLECT_GRAVEL);
+        }
+    }
+
     private void tickPickupDrops(MinecraftClient mc) {
         ChatPilotClient.BARITONE.stop();
 
         ItemEntity nearest = findNearestFlintOrGravelDrop(mc);
 
         if (nearest == null) {
-            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] No nearby flint/gravel drops left, finishing");
-            releaseKeys();
-            enterStage(Stage.DONE);
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Drops collected");
+            advanceFromPickup(mc);
             return;
         }
 
         if (clientTick() - pickupStartTick > PICKUP_TIMEOUT_TICKS) {
-            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Pickup timeout, finishing anyway");
-            releaseKeys();
-            enterStage(Stage.DONE);
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Pickup timeout");
+            advanceFromPickup(mc);
             return;
         }
 

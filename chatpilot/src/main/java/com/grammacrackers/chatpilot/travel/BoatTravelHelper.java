@@ -29,10 +29,17 @@ public class BoatTravelHelper {
         int minDist = Math.max(16, ChatPilotClient.CONFIG.mysteryBoatMinTravelDistance);
 
         if (dist2 < minDist * minDist) {
-            if (mc.player.hasVehicle() && dismountCooldown <= 0) {
+            if (mc.player.hasVehicle()) {
+                // Near the goal but still in the boat - hold sneak to dismount,
+                // and keep boat-assist active so we run again afterwards and
+                // actually release the key. Returning false here would leave
+                // sneak stuck pressed and the bot would then crawl everywhere.
                 mc.options.sneakKey.setPressed(true);
-                dismountCooldown = 20;
+                return true;
             }
+
+            // Out of the boat - make sure sneak is released.
+            mc.options.sneakKey.setPressed(false);
             return false;
         }
 
@@ -135,10 +142,13 @@ public class BoatTravelHelper {
 
         BlockPos here = mc.player.getBlockPos();
 
+        // Scan a short vertical band at each step ahead, so water below a low
+        // bank still counts (the bot is often a block or two above the water).
         for (int i = 1; i <= lookahead; i++) {
-            BlockPos p = here.add(dx * i, 0, dz * i);
-            if (isWater(mc, p) || isWater(mc, p.down())) {
-                return true;
+            for (int dy = 1; dy >= -3; dy--) {
+                if (isWater(mc, here.add(dx * i, dy, dz * i))) {
+                    return true;
+                }
             }
         }
 
@@ -188,17 +198,24 @@ public class BoatTravelHelper {
 
     private static void steerBoatToward(MinecraftClient mc, BlockPos goal) {
         Vec3d target = Vec3d.ofCenter(goal);
-        lookAt(mc, target);
 
         mc.options.forwardKey.setPressed(true);
         mc.options.sprintKey.setPressed(false);
 
-        // Boat turns with A/D, not only mouse look.
+        // Steer with A/D using the BOAT's heading - not the player's look yaw.
+        // The boat turns toward the goal; the player look is purely cosmetic.
+        // (The old code compared against the player yaw right after lookAt()
+        // aligned it, so the error was always 0 and the boat never turned.)
         double yawToGoal = yawTo(mc.player.getPos(), target);
-        double diff = wrapDegrees(yawToGoal - mc.player.getYaw());
+        Entity boat = mc.player.getVehicle();
+        double boatYaw = boat != null ? boat.getYaw() : mc.player.getYaw();
+        double diff = wrapDegrees(yawToGoal - boatYaw);
 
         mc.options.leftKey.setPressed(diff < -8);
         mc.options.rightKey.setPressed(diff > 8);
+
+        // Point the camera toward the goal for the stream.
+        lookAt(mc, target);
     }
 
     private static double yawTo(Vec3d from, Vec3d to) {

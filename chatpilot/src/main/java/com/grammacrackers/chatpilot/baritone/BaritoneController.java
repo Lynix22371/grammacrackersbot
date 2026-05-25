@@ -7,6 +7,7 @@ import baritone.api.pathing.goals.GoalNear;
 import baritone.api.pathing.goals.GoalXZ;
 import com.grammacrackers.chatpilot.ChatPilotMod;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.item.Items;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 
@@ -82,7 +83,15 @@ public class BaritoneController {
             s.allowPlace.value = true;
             s.legitMine.value = false;
 
+            // Cheap blocks Baritone may place for movement - pillaring out of
+            // holes, bridging gaps. With this list empty Baritone cannot climb
+            // out of a deep hole at all and the bot gets trapped.
             s.acceptableThrowawayItems.value.clear();
+            s.acceptableThrowawayItems.value.addAll(java.util.List.of(
+                    Items.COBBLESTONE, Items.COBBLED_DEEPSLATE, Items.DIRT,
+                    Items.STONE, Items.DEEPSLATE, Items.NETHERRACK,
+                    Items.GRANITE, Items.DIORITE, Items.ANDESITE, Items.TUFF
+            ));
             s.mineScanDroppedItems.value = true;
             s.notificationOnMineFail.value = false;
             s.notificationOnPathComplete.value = false;

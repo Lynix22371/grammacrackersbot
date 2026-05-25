@@ -72,6 +72,10 @@ public class ReturnHomeAndDepositTask implements Task {
     private static final int BEDROCK_SAFE_Y_OFFSET = 6;
     private static final int BEDROCK_PILLAR_TIMEOUT_TICKS = 20 * 8;
 
+    /** One stack of cobblestone is kept for travel; gravel is capped at two. */
+    private static final int COBBLE_KEEP_LIMIT = 64;
+    private static final int GRAVEL_KEEP_LIMIT = 128;
+
     private Stage stage = Stage.WALK_HOME;
     private int stageStartTick;
 
@@ -83,6 +87,14 @@ public class ReturnHomeAndDepositTask implements Task {
     private int transferCursor;
     private int hopperDepositCursor;
     private int cactusDropCursor;
+
+    /**
+     * How much cobblestone / gravel has been kept (not trashed or deposited)
+     * so far this return trip. Used to keep one stack of cobblestone for
+     * travel and cap gravel at two stacks. Reset in start().
+     */
+    private int cobbleKept;
+    private int gravelKept;
 
     /** Closest the bot has gotten to the bed so far in the current stage. */
     private double bestDistToBed = Double.MAX_VALUE;
@@ -132,11 +144,17 @@ public class ReturnHomeAndDepositTask implements Task {
 
         MinecraftClient mc = MinecraftClient.getInstance();
 
+        // Clear any movement key (especially sneak) the previous task may have
+        // left pressed, so the bot doesn't crawl home sneaking.
+        releaseKeys();
+
         chestQueue.clear();
         currentChest = null;
         transferCursor = 0;
         hopperDepositCursor = 0;
         cactusDropCursor = 0;
+        cobbleKept = 0;
+        gravelKept = 0;
 
         resetReturnProgress(mc);
 
@@ -264,7 +282,7 @@ public class ReturnHomeAndDepositTask implements Task {
                 int invSlot = cactusDropCursor++;
                 ItemStack stack = mc.player.getInventory().getStack(invSlot);
 
-                if (!stack.isEmpty() && isTrash(stack)) {
+                if (!stack.isEmpty() && shouldThrowAtCactus(stack)) {
                     int handlerSlot = inventorySlotToHandlerSlot(invSlot);
                     int syncId = mc.player.playerScreenHandler.syncId;
 
@@ -346,7 +364,7 @@ public class ReturnHomeAndDepositTask implements Task {
                 int handlerSlot = hopperSize + hopperDepositCursor++;
                 ItemStack stack = sh.getSlot(handlerSlot).getStack();
 
-                if (!stack.isEmpty() && shouldDeposit(stack)) {
+                if (!stack.isEmpty() && decideDeposit(stack)) {
                     mc.interactionManager.clickSlot(
                             sh.syncId,
                             handlerSlot,
@@ -423,7 +441,7 @@ public class ReturnHomeAndDepositTask implements Task {
 
                 ItemStack stack = sh.getSlot(playerSlotInHandler).getStack();
 
-                if (!stack.isEmpty() && shouldDeposit(stack)) {
+                if (!stack.isEmpty() && decideDeposit(stack)) {
                     mc.interactionManager.clickSlot(
                             sh.syncId,
                             playerSlotInHandler,
@@ -968,16 +986,82 @@ public class ReturnHomeAndDepositTask implements Task {
 
     private static int inventoryDepositCount(PlayerEntity p) {
         int n = 0;
+        int gravel = 0;
 
         for (int i = 0; i < 36; i++) {
             ItemStack s = p.getInventory().getStack(i);
 
-            if (!s.isEmpty() && shouldDeposit(s)) {
+            if (s.isEmpty()) {
+                continue;
+            }
+
+            // Cobblestone is always kept for travel - never counts as deposit.
+            if (s.isOf(Items.COBBLESTONE)) {
+                continue;
+            }
+
+            // Gravel is counted separately so only the excess over two stacks
+            // is treated as depositable.
+            if (s.isOf(Items.GRAVEL)) {
+                gravel += s.getCount();
+                continue;
+            }
+
+            if (shouldDeposit(s)) {
                 n += s.getCount();
             }
         }
 
-        return n;
+        return n + Math.max(0, gravel - GRAVEL_KEEP_LIMIT);
+    }
+
+    /**
+     * Whether to throw this stack at the trash cactus. Identical to {@link
+     * #isTrash} except one stack of cobblestone is kept back for travel
+     * (Baritone uses it to pillar out of holes); cobblestone beyond that is
+     * still trashed.
+     */
+    private boolean shouldThrowAtCactus(ItemStack stack) {
+        if (stack.isEmpty()) {
+            return false;
+        }
+
+        if (stack.isOf(Items.COBBLESTONE)) {
+            if (cobbleKept < COBBLE_KEEP_LIMIT) {
+                cobbleKept += stack.getCount();
+                return false;
+            }
+            return true;
+        }
+
+        return isTrash(stack);
+    }
+
+    /**
+     * Whether to deposit this stack into the hopper/chest. Like {@link
+     * #shouldDeposit} but keeps cobblestone (for travel) and caps gravel at
+     * two stacks, depositing only the excess.
+     */
+    private boolean decideDeposit(ItemStack stack) {
+        if (stack.isEmpty()) {
+            return false;
+        }
+
+        // Cobblestone is kept for travel - never deposited.
+        if (stack.isOf(Items.COBBLESTONE)) {
+            return false;
+        }
+
+        // Gravel: keep up to two stacks for the flint task, deposit the rest.
+        if (stack.isOf(Items.GRAVEL)) {
+            if (gravelKept < GRAVEL_KEEP_LIMIT) {
+                gravelKept += stack.getCount();
+                return false;
+            }
+            return true;
+        }
+
+        return shouldDeposit(stack);
     }
 
     private static boolean shouldDeposit(ItemStack s) {
