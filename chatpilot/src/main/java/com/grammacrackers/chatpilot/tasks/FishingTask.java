@@ -13,7 +13,50 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 
 /**
- * Fishing task. v1.2.0 - Diagnostic Logging & Strict 3x3 Pool Selection.
+ * Fishing task. v1.3.0 replacement for the old wood-gathering vote slot.
+ *
+ * Why fishing instead of wood: streams want visible progression that doesn't
+ * accumulate too many resources. Fishing satisfies all three:
+ *   - Visible: bobber casts and bobs in real time, splash on each catch.
+ *   - Progressive: catches arrive one at a time, chat watches a counter tick.
+ *   - Low impact on inventory: fish are food (not crafting), and rare
+ *     treasures (saddles, name tags, enchanted books) give chat hype moments
+ *     without flooding the chest.
+ *
+ * Stages:
+ *   SCAN_WATER      - find a water surface block within scan radius
+ *   WALK_TO_WATER   - Baritone gotoNear the water position
+ *   EQUIP_ROD       - find a fishing_rod in inventory and select it
+ *   AIM_AND_CAST    - face the water, right-click to cast
+ *   WAITING         - watch the bobber's velocity for a bite
+ *   REELING         - right-click again to reel in the catch
+ *   SETTLE          - brief pause before the next cast
+ *   EXPLORE_OUTWARD - if no water nearby, run Baritone explore and rescan
+ *   DONE            - catch target reached or task ended
+ *
+ * Catch detection: the FishingBobberEntity dips its Y velocity below
+ * {@code fishingBiteVelocityY} (default -0.04) when a fish bites. We watch
+ * for that on the client side; no server-side mod needed. Vanilla average
+ * bite time is 5-30 seconds with a luck-of-the-sea rod, so we cap WAITING at
+ * {@code fishingMaxWaitTicks} and recast on timeout.
+ *
+ * Requirements: the bot needs a fishing rod somewhere in inventory. The task
+ * checks hotbar first, then main inventory (auto-swaps to hotbar slot 8).
+ * If no rod is found, the task ends quickly so the next vote can pick
+ * something else.
+ *
+ * v1.3.0 Updates: 
+ *   1. Buoyancy, keep the boat afloat while fishing.
+ *   2. If we're already floating in the water, just fish there.
+ *   3. Look for a 3x3 source block water pool with sky blocks above it to
+ *      fish for rarer items.
+ *   4. Flowing water flexibility, allow it to fish in areas with flowing water.
+ *   5. Bobber Despawn Reset. If the bobber disappears into thin air during the 
+ *      reeling phase, it logs a warning and forces a state reset back to SCAN_WATER.
+ *   6. Optional Diagnostic Telemetry to report the 2D distance to the water target.
+ *   7. No accidental fishing in Lava.
+ *   8. Changed the distance to be closer to a water source to ensure what we catch, we keep.
+ *   9. Attempted to make finding water sources that are closer. Still needs work.
  */
 public class FishingTask implements Task {
 
