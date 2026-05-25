@@ -34,7 +34,7 @@ public class ChatPilotConfig {
      */
     public int waterEscapeIgnoreSurfaceDepthBlocks = 2;
 
-    public double lookWhereWalkingYawDeadzone = 8.0;
+
 
     // === Voting ===
     public int    voteWindowSeconds = 30;
@@ -74,6 +74,19 @@ public class ChatPilotConfig {
      * Ignore tiny jitter when the player is not really moving.
      */
     public double lookWhereWalkingMinSpeed = 0.015;
+
+    public double lookWhereWalkingYawDeadzone = 10.0;
+
+    /**
+     * Direction must differ this much before the camera chooses a new walking heading.
+     */
+    public double lookWhereWalkingRelockAngle = 35.0;
+
+    /**
+     * How long to wait before accepting a new direction.
+     * 30 ticks = 1.5 seconds.
+     */
+    public int lookWhereWalkingRelockTicks = 30;
     
 
     // === HUD layout ===
