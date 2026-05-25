@@ -13,37 +13,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 
 /**
- * Fishing task. v1.2.0 replacement for the old wood-gathering vote slot.
- *
- * Why fishing instead of wood: streams want visible progression that doesn't
- * accumulate too many resources. Fishing satisfies all three:
- *   - Visible: bobber casts and bobs in real time, splash on each catch.
- *   - Progressive: catches arrive one at a time, chat watches a counter tick.
- *   - Low impact on inventory: fish are food (not crafting), and rare
- *     treasures (saddles, name tags, enchanted books) give chat hype moments
- *     without flooding the chest.
- *
- * Stages:
- *   SCAN_WATER      - find a water surface block within scan radius
- *   WALK_TO_WATER   - Baritone gotoNear the water position
- *   EQUIP_ROD       - find a fishing_rod in inventory and select it
- *   AIM_AND_CAST    - face the water, right-click to cast
- *   WAITING         - watch the bobber's velocity for a bite
- *   REELING         - right-click again to reel in the catch
- *   SETTLE          - brief pause before the next cast
- *   EXPLORE_OUTWARD - if no water nearby, run Baritone explore and rescan
- *   DONE            - catch target reached or task ended
- *
- * Catch detection: the FishingBobberEntity dips its Y velocity below
- * {@code fishingBiteVelocityY} (default -0.04) when a fish bites. We watch
- * for that on the client side; no server-side mod needed. Vanilla average
- * bite time is 5-30 seconds with a luck-of-the-sea rod, so we cap WAITING at
- * {@code fishingMaxWaitTicks} and recast on timeout.
- *
- * Requirements: the bot needs a fishing rod somewhere in inventory. The task
- * checks hotbar first, then main inventory (auto-swaps to hotbar slot 8).
- * If no rod is found, the task ends quickly so the next vote can pick
- * something else.
+ * Fishing task. v1.2.0 - Diagnostic Logging & Strict 3x3 Pool Selection.
  */
 public class FishingTask implements Task {
 
@@ -59,15 +29,10 @@ public class FishingTask implements Task {
         DONE
     }
 
-    /** Hard cap on the explore-for-water cycles before we give up the task. */
     private static final int MAX_EXPLORE_CYCLES         = 3;
-    /** How long to walk via Baritone explore each cycle. */
     private static final int EXPLORE_DURATION_TICKS     = 18 * 20;
-    /** Re-issue Baritone goto if the bot stops without arriving. */
     private static final int APPROACH_TIMEOUT_TICKS     = 25 * 20;
-    /** How close (squared distance) counts as "arrived at water". */
     private static final int ARRIVAL_DIST_SQ            = 16;
-    /** Settle window after each reel before casting again. */
     private static final int CAST_GUARD_TICKS           = 30;
 
     private Stage   stage = Stage.SCAN_WATER;
@@ -96,14 +61,28 @@ public class FishingTask implements Task {
         exploreCycles  = 0;
         waterTarget    = null;
         ChatPilotClient.BARITONE.hardReset();
+
+        // DIAGNOSTIC START LOG
+        ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] ==============================================");
+        ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] TASK STARTED! Bot current position: [X: {}, Y: {}, Z: {}]",
+                mc.player.getBlockX(), mc.player.getBlockY(), mc.player.getBlockZ());
+        ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] ==============================================");
+
         enterStage(Stage.SCAN_WATER);
-        ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Task started");
     }
 
     @Override
     public boolean tick() {
         var mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.world == null) return false;
+
+        if (mc.player.isTouchingWater() || mc.player.isInSwimmingPose()) {
+            mc.options.jumpKey.setPressed(true);
+        } else {
+            if (!ChatPilotClient.BARITONE.isPathing()) {
+                mc.options.jumpKey.setPressed(false);
+            }
+        }
 
         switch (stage) {
             case SCAN_WATER       -> tickScanWater(mc);
@@ -122,25 +101,46 @@ public class FishingTask implements Task {
     /* ---------- per-stage handlers ---------- */
 
     private void tickScanWater(MinecraftClient mc) {
+        var currentFluid = mc.world.getFluidState(mc.player.getBlockPos());
+        if (mc.player.isTouchingWater() && currentFluid.isStill() && (currentFluid.isOf(Fluids.WATER) || currentFluid.isOf(Fluids.FLOWING_WATER))) {
+            var lookVec = mc.player.getRotationVec(1.0f);
+            BlockPos forwardWater = mc.player.getBlockPos().add(
+                    (int)(lookVec.x * 4),
+                    0,
+                    (int)(lookVec.z * 4)
+            );
+
+            waterTarget = forwardWater;
+            ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Deep Ocean detected! Fishing in-place at surface.");
+            enterStage(Stage.EQUIP_ROD);
+            return;
+        }
+
+        ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Searching for valid 3x3 water pool...");
         BlockPos surface = findWaterSurface(mc);
+
         if (surface != null) {
             waterTarget = surface;
             ChatPilotClient.BARITONE.hardReset();
+
+            // Fix: Tell Baritone to go NEAR the target block, but don't force it to submerge
             ChatPilotClient.BARITONE.gotoNear(surface, 3);
-            ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Water surface at {}, walking to it", surface);
+
+            ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] TARGET LOCK! Going to water coordinate: [X: {}, Y: {}, Z: {}]",
+                    surface.getX(), surface.getY(), surface.getZ());
+
             enterStage(Stage.WALK_TO_WATER);
             return;
         }
-        // No water nearby: run explore to push outward into fresh chunks.
         if (exploreCycles >= MAX_EXPLORE_CYCLES) {
             ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Could not find water after {} explores, ending",
-                exploreCycles);
+                    exploreCycles);
             enterStage(Stage.DONE);
             return;
         }
         exploreCycles++;
         ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] No water nearby, exploring outward (cycle {}/{})",
-            exploreCycles, MAX_EXPLORE_CYCLES);
+                exploreCycles, MAX_EXPLORE_CYCLES);
         ChatPilotClient.BARITONE.hardReset();
         ChatPilotClient.BARITONE.run("explore");
         enterStage(Stage.EXPLORE_OUTWARD);
@@ -148,21 +148,33 @@ public class FishingTask implements Task {
 
     private void tickWalkToWater(MinecraftClient mc) {
         if (waterTarget == null) { enterStage(Stage.SCAN_WATER); return; }
-        double dist2 = mc.player.getBlockPos().getSquaredDistance(waterTarget);
-        if (dist2 < ARRIVAL_DIST_SQ) {
+
+        double dx = waterTarget.getX() + 0.5 - mc.player.getX();
+        double dz = waterTarget.getZ() + 0.5 - mc.player.getZ();
+        double dist2D = (dx * dx) + (dz * dz);
+
+        // EN ROUTE STATUS LOG (Every 2 seconds / 40 ticks)
+        if (ticksInStage() % 40 == 0) {
+            ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] En route to target [X: {}, Y: {}, Z: {}]. Distance remaining: {} blocks.",
+                    waterTarget.getX(), waterTarget.getY(), waterTarget.getZ(), Math.round(Math.sqrt(dist2D) * 10.0) / 10.0);
+        }
+
+        if (dist2D <= 6.25) {
+            ChatPilotClient.BARITONE.stop();
             ChatPilotClient.BARITONE.hardReset();
+            ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Close enough to target water. Stopping to fish.");
             enterStage(Stage.EQUIP_ROD);
             return;
         }
         if (ticksInStage() > APPROACH_TIMEOUT_TICKS) {
-            // Could not reach this water, scan again from current position.
+            ChatPilotMod.LOGGER.warn("[ChatPilot][Fishing] Walk timeout reached. Resetting target.");
             ChatPilotClient.BARITONE.hardReset();
             waterTarget = null;
             enterStage(Stage.SCAN_WATER);
             return;
         }
         if (!ChatPilotClient.BARITONE.isPathing() && !ChatPilotClient.BARITONE.isActive()) {
-            ChatPilotClient.BARITONE.gotoNear(waterTarget, 3);
+            ChatPilotClient.BARITONE.gotoNear(waterTarget, 2);
         }
     }
 
@@ -178,20 +190,16 @@ public class FishingTask implements Task {
 
     private void tickAimAndCast(MinecraftClient mc) {
         if (waterTarget == null) { enterStage(Stage.SCAN_WATER); return; }
-        // Make sure the rod is still selected (combat resume might have changed it).
         if (mc.player.getInventory().selectedSlot != rodSelectedSlot) {
             mc.player.getInventory().setSelectedSlot(rodSelectedSlot);
         }
-        // Aim at the water surface.
         aimAt(mc, Vec3d.ofCenter(waterTarget));
-        // Cast.
         var result = mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
         if (result.isAccepted()) {
             ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Casted (catches so far: {})", catches);
             waitingStartTick = clientTick();
             enterStage(Stage.WAITING);
         } else if (ticksInStage() > 20 * 5) {
-            // Cast keeps failing, possibly out of position. Reseat.
             ChatPilotMod.LOGGER.warn("[ChatPilot][Fishing] Cast not accepted, rescanning water");
             waterTarget = null;
             enterStage(Stage.SCAN_WATER);
@@ -199,14 +207,10 @@ public class FishingTask implements Task {
     }
 
     private void tickWaiting(MinecraftClient mc) {
-        // Don't try to detect bites in the first tick or two: the bobber is
-        // still in flight from the cast and its velocity is large in any
-        // direction. CAST_GUARD_TICKS is enough for the bobber to settle.
         long elapsed = clientTick() - waitingStartTick;
         FishingBobberEntity bobber = mc.player.fishHook;
 
         if (bobber == null) {
-            // Bobber gone (maybe despawned, or we never actually cast). Recast.
             if (elapsed > CAST_GUARD_TICKS) {
                 ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Bobber missing after cast, retrying");
                 enterStage(Stage.AIM_AND_CAST);
@@ -217,40 +221,46 @@ public class FishingTask implements Task {
 
         double vy = bobber.getVelocity().y;
         if (vy < ChatPilotClient.CONFIG.fishingBiteVelocityY) {
-            // Bobber dipped: fish bit. Reel immediately.
             ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Bite detected (vy={})", vy);
             enterStage(Stage.REELING);
             return;
         }
         if (elapsed > ChatPilotClient.CONFIG.fishingMaxWaitTicks) {
             ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Wait timeout, recasting");
-            enterStage(Stage.REELING); // reel current line, then cast fresh
+            enterStage(Stage.REELING);
         }
     }
 
     private void tickReeling(MinecraftClient mc) {
+        if (mc.player.fishHook == null) {
+            ChatPilotMod.LOGGER.warn("[ChatPilot][Fishing] Bobber went missing in REELING! Forcing state reset.");
+            waterTarget = null;
+            enterStage(Stage.SCAN_WATER);
+            return;
+        }
+
         if (mc.player.getInventory().selectedSlot != rodSelectedSlot && rodSelectedSlot >= 0) {
             mc.player.getInventory().setSelectedSlot(rodSelectedSlot);
         }
-        // Right-click again to reel.
+
         mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
-        // Count this only as a catch if a bite was registered before the timeout.
-        // Heuristic: if the wait window was not exhausted, we caught something.
+
         long elapsed = clientTick() - waitingStartTick;
         if (elapsed < ChatPilotClient.CONFIG.fishingMaxWaitTicks) {
             catches++;
         }
+
         if (catches >= ChatPilotClient.CONFIG.fishingCatchTarget) {
             ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Catch target met ({}), ending task", catches);
             enterStage(Stage.DONE);
             return;
         }
+
         enterStage(Stage.SETTLE);
     }
 
     private void tickSettle() {
         if (ticksInStage() >= ChatPilotClient.CONFIG.fishingSettleTicks) {
-            // Re-aim and cast again. Same waterTarget, same rod.
             enterStage(Stage.AIM_AND_CAST);
         }
     }
@@ -268,43 +278,61 @@ public class FishingTask implements Task {
         stageStartTick = clientTick();
     }
 
-    /**
-     * Scans for the closest water surface block (still water with an air block
-     * directly above) within the configured scan radius. Returns null if none
-     * is in range.
-     */
     private BlockPos findWaterSurface(MinecraftClient mc) {
-        int radius = Math.max(4, ChatPilotClient.CONFIG.fishingWaterScanRadius);
-        BlockPos here = mc.player.getBlockPos();
-        BlockPos best = null;
-        double bestDist = Double.MAX_VALUE;
-        BlockPos lo = here.add(-radius, -8, -radius);
-        BlockPos hi = here.add( radius,  8,  radius);
-        for (BlockPos p : BlockPos.iterate(lo, hi)) {
-            try {
-                BlockState bs = mc.world.getBlockState(p);
-                if (!bs.getFluidState().isOf(Fluids.WATER)) continue;
-                if (!bs.getFluidState().isStill()) continue;
-                BlockState above = mc.world.getBlockState(p.up());
-                if (!above.isAir()) continue;
-                double d = p.getSquaredDistance(here);
-                if (d < bestDist) {
-                    bestDist = d;
-                    best = p.toImmutable();
+        BlockPos playerPos = mc.player.getBlockPos();
+        int horizontalRadius = 36;
+        int verticalRadius = 12;
+
+        BlockPos closestWater = null;
+        int minManhattanDistance = Integer.MAX_VALUE;
+
+        for (int y = verticalRadius; y >= -verticalRadius; y--) {
+            for (int x = -horizontalRadius; x <= horizontalRadius; x++) {
+                for (int z = -horizontalRadius; z <= horizontalRadius; z++) {
+                    BlockPos p = playerPos.add(x, y, z);
+
+                    var fluidState = mc.world.getFluidState(p);
+                    // MODIFIED: Accept both still and flowing water if it forms a full block
+                    if (!fluidState.isEmpty() && (fluidState.isOf(Fluids.WATER) || fluidState.isOf(Fluids.FLOWING_WATER))) {
+                        if (mc.world.isSkyVisible(p.up())) {
+                            if (isCenterOf3x3OpenWater(mc, p)) {
+
+                                int dx = Math.abs(p.getX() - playerPos.getX());
+                                int dy = Math.abs(p.getY() - playerPos.getY());
+                                int dz = Math.abs(p.getZ() - playerPos.getZ());
+                                int manhattanDist = dx + (dy * 2) + dz;
+
+                                if (manhattanDist < minManhattanDistance) {
+                                    minManhattanDistance = manhattanDist;
+                                    closestWater = p;
+                                }
+                            }
+                        }
+                    }
                 }
-            } catch (Throwable ignored) {}
+            }
         }
-        return best;
+        return closestWater;
     }
 
-    /**
-     * Find a fishing rod and ensure it's the selected hotbar item. Returns
-     * the resulting hotbar slot index, or -1 if the inventory has no rod.
-     *
-     * Hotbar first (cheapest path: just setSelectedSlot). If the rod is
-     * deeper in inventory, send a SWAP click to move it to hotbar slot 8 so
-     * we don't disturb the player's preferred layout for slots 0-7.
-     */
+    private boolean isCenterOf3x3OpenWater(MinecraftClient mc, BlockPos center) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                BlockPos checkPos = center.add(dx, 0, dz);
+
+                var state = mc.world.getFluidState(checkPos);
+                // MODIFIED: Loop blocks can be flowing water mechanics as long as they aren't empty air/lava
+                if (state.isEmpty() || (!state.isOf(Fluids.WATER) && !state.isOf(Fluids.FLOWING_WATER))) {
+                    return false;
+                }
+                if (!mc.world.isSkyVisible(checkPos.up())) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private int equipFishingRod(MinecraftClient mc) {
         var inv = mc.player.getInventory();
         for (int i = 0; i < 9; i++) {
@@ -313,14 +341,11 @@ public class FishingTask implements Task {
                 return i;
             }
         }
-        // Not in hotbar; search main inventory and swap into slot 8.
         for (int i = 9; i < 36; i++) {
             if (inv.getStack(i).getItem() == Items.FISHING_ROD) {
                 try {
                     int syncId = mc.player.playerScreenHandler.syncId;
-                    // SWAP with hotbar slot 8 (button arg = 0..8 hotbar index).
-                    mc.interactionManager.clickSlot(syncId, i, 8,
-                        SlotActionType.SWAP, mc.player);
+                    mc.interactionManager.clickSlot(syncId, i, 8, SlotActionType.SWAP, mc.player);
                     inv.setSelectedSlot(8);
                     return 8;
                 } catch (Throwable t) {
@@ -332,7 +357,6 @@ public class FishingTask implements Task {
         return -1;
     }
 
-    /** Set yaw/pitch so the player's gaze points at {@code target}. */
     private void aimAt(MinecraftClient mc, Vec3d target) {
         Vec3d eye = mc.player.getEyePos();
         double dx = target.x - eye.x, dy = target.y - eye.y, dz = target.z - eye.z;
@@ -361,16 +385,12 @@ public class FishingTask implements Task {
                 return true;
             }
             case SCAN_WATER -> {
-                // No water and stuck while scanning: try explore.
                 ChatPilotClient.BARITONE.run("explore");
                 enterStage(Stage.EXPLORE_OUTWARD);
                 return true;
             }
-            // While actively fishing the bot is standing still, so the
-            // standard movement watchdog will fire constantly. We don't
-            // recover those — let the watchdog count them as no-ops.
             case AIM_AND_CAST, WAITING, REELING, SETTLE, EQUIP_ROD -> {
-                return true;
+                return false;
             }
             case DONE -> { return false; }
         }
@@ -381,22 +401,15 @@ public class FishingTask implements Task {
     public void onCombatStart() {
         savedForCombat = true;
         ChatPilotClient.BARITONE.stop();
-        // If the bobber is in the water during combat we just leave it; reeling
-        // is an interaction packet and combat handlers don't need it. The line
-        // will despawn or be recast on resume.
     }
 
     @Override
     public void onCombatEnd() {
         if (!savedForCombat) return;
         savedForCombat = false;
-        // Wherever we were, fall back to scanning fresh: combat may have moved
-        // us out of casting range and the bobber is probably gone anyway.
         var mc = MinecraftClient.getInstance();
         if (mc.player != null) {
-            // Make sure the rod is still our selected slot.
-            if (rodSelectedSlot >= 0
-                && mc.player.getInventory().selectedSlot != rodSelectedSlot) {
+            if (rodSelectedSlot >= 0 && mc.player.getInventory().selectedSlot != rodSelectedSlot) {
                 mc.player.getInventory().setSelectedSlot(rodSelectedSlot);
             }
         }
@@ -407,13 +420,11 @@ public class FishingTask implements Task {
     @Override
     public void cancel() {
         ChatPilotClient.BARITONE.hardReset();
-        // Try to reel the bobber if one is still out so we don't leave a
-        // dangling line on cancel.
         try {
             var mc = MinecraftClient.getInstance();
             if (mc != null && mc.player != null && mc.player.fishHook != null
-                && rodSelectedSlot >= 0
-                && mc.player.getInventory().getStack(rodSelectedSlot).getItem() == Items.FISHING_ROD) {
+                    && rodSelectedSlot >= 0
+                    && mc.player.getInventory().getStack(rodSelectedSlot).getItem() == Items.FISHING_ROD) {
                 if (mc.player.getInventory().selectedSlot != rodSelectedSlot) {
                     mc.player.getInventory().setSelectedSlot(rodSelectedSlot);
                 }
