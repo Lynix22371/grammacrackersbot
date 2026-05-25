@@ -95,6 +95,7 @@ public class LookWhereWalkingManager {
         if (targetBehindMovement(p, dx, dz)) {
             return;
         }
+     
 
         // Yaw: only track it when there is enough horizontal offset for a
         // stable bearing (digging straight down has none - keep the yaw).

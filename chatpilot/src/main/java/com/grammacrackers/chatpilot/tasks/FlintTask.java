@@ -421,6 +421,20 @@ public class FlintTask implements Task {
             return true;
         }
 
+        if (stage == Stage.MOVE_TO_OPEN_SPACE) {
+            openSpaceTarget = null;
+            columnBase = null;
+            placedHeight = 0;
+            enterStage(Stage.BUILD_COLUMN);
+            return true;
+        }
+
+        if (stage == Stage.PICKUP_DROPS) {
+            releaseKeys();
+            enterStage(Stage.DONE);
+            return true;
+        }
+
         columnBase = null;
         placedHeight = 0;
         openSpaceTarget = null;
