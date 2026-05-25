@@ -198,6 +198,11 @@ public class VoteManager {
             return Math.max(ChatPilotClient.CONFIG.minTaskDurationSeconds,
                             ChatPilotClient.CONFIG.indefiniteTaskMaxSeconds);
         }
+        // Mining always runs the full duration: the bot needs time to travel
+        // out to the mining area, dig, and return home.
+        if (task != null && "mine".equals(task.id())) {
+            return ChatPilotClient.CONFIG.maxTaskDurationSeconds;
+        }
         int min = ChatPilotClient.CONFIG.minTaskDurationSeconds;
         int max = ChatPilotClient.CONFIG.maxTaskDurationSeconds;
         int votes = getTotalVotes();
