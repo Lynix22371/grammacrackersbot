@@ -2,26 +2,24 @@ package com.grammacrackers.chatpilot.home;
 
 import com.grammacrackers.chatpilot.ChatPilotClient;
 import com.grammacrackers.chatpilot.ChatPilotMod;
+import com.grammacrackers.chatpilot.tasks.TaskManager;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 
 /**
- * Reactive guard that prevents Baritone from breaking the house.
+ * Guards the area around the house.
  *
- * Strategy:
- *   1. Each tick, if a task is RUNNING and Baritone is mining/active, check
- *      whether the player is inside the protection sphere around the bed.
- *   2. If yes, force a hard reset on Baritone and queue a "step away" goal
- *      to a point exactly (radius + 6) blocks away from the bed in the
- *      player's current heading.
- *   3. The MiningTask state machine sees Baritone go idle and re-enters its
- *      MOVE_AWAY stage on its next tick, so the task itself recovers.
- *
- * This is purely defensive. The MiningTask already chooses an anchor at
- * miningMinDistanceFromHome (default 40), which is well beyond the protection
- * radius (default 25). The guard exists as belt-and-suspenders for cases
- * where pathing chooses a route that cuts through the house.
+ * Two layers:
+ *   1. No-dig zone (applyNoDigZone): while the RETURN-HOME flow is running,
+ *      Baritone block-breaking is disabled within houseNoDigRadius of the bed.
+ *      This stops the bot tunnelling or surfacing through the ground near home
+ *      and leaving holes. It is scoped to the return-home flow ONLY - dedicated
+ *      mining is never restricted, because forcing allowBreak off mid-mine just
+ *      deadlocks Baritone ("Unable to mine when allowBreak is false").
+ *   2. Step-out guard: if Baritone is actively mining inside the tighter
+ *      houseProtectionRadius sphere, it is hard-reset and sent to a point
+ *      just outside the sphere so it stops breaking house blocks.
  */
 public class HouseProtectionGuard {
 
@@ -30,6 +28,11 @@ public class HouseProtectionGuard {
 
     public void tick() {
         tickCounter++;
+
+        // No-dig zone enforcement runs every tick, independent of the
+        // step-out cooldown below.
+        applyNoDigZone();
+
         if (tickCounter < cooldownUntilTick) return;
 
         MinecraftClient mc = MinecraftClient.getInstance();
@@ -65,6 +68,37 @@ public class HouseProtectionGuard {
 
         // Backoff so we do not spam hardResets if the player drifts back in
         cooldownUntilTick = tickCounter + 60; // 3 seconds
+    }
+
+    /**
+     * allowBreak / allowPlace ownership.
+     *
+     * While the return-home / deposit flow runs, the ReturnHomeAndDepositTask
+     * manages allowBreak and allowPlace itself - it knows when it is stuck
+     * inside the no-dig ring and must be allowed to dig/place to free itself.
+     * In every other phase (especially mining) breaking must be enabled,
+     * otherwise Baritone's mine process deadlocks with "Unable to mine when
+     * allowBreak is false", and placing must be enabled so Baritone can
+     * pillar/bridge out of holes.
+     */
+    private void applyNoDigZone() {
+        if (ChatPilotClient.BARITONE == null) return;
+
+        boolean returningHome = false;
+
+        if (ChatPilotClient.TASKS != null) {
+            TaskManager.Phase phase = ChatPilotClient.TASKS.getPhase();
+            returningHome = phase == TaskManager.Phase.RETURNING_HOME
+                         || phase == TaskManager.Phase.DEPOSITING;
+        }
+
+        // Outside the return-home flow, always allow breaking and placing so
+        // mining and pillar-escape work. During return-home, leave both to
+        // the task itself.
+        if (!returningHome) {
+            ChatPilotClient.BARITONE.setAllowBreak(true);
+            ChatPilotClient.BARITONE.setAllowPlace(true);
+        }
     }
 
     private static boolean withinSphere(BlockPos a, BlockPos b, int radius) {

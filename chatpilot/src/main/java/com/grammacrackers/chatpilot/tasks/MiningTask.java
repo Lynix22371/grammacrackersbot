@@ -10,25 +10,19 @@ import com.grammacrackers.chatpilot.chat.OreDemandTracker;
 import net.minecraft.util.math.BlockPos;
 
 /**
- * Mining task. v1.2.0 refocus on emerald, gold, and coal.
+ * Mining task.
  *
- *   EMERALD: rare, exciting, only generates in mountain biomes. Low quota
- *            (4) so any small find satisfies the stage and the bot moves on
- *            without grinding the same vein for an hour. The explore-then-
- *            retry guard kicks the bot to fresh chunks if no emerald shows
- *            up quickly, then advances to gold.
- *   GOLD:    moderate frequency. Quota 8.
- *   COAL:    common and reliable. Quota 16. Always finds some, so this is
- *            effectively the floor of "the bot accomplished something".
+ * The normal (non-voted) rotation works through every ore in priority order:
+ *   DIAMOND -> IRON -> EMERALD -> GOLD -> LAPIS -> COAL
+ * Each ore has its own quota (see ChatPilotConfig). Once a quota is met, or
+ * exploration is exhausted, the bot advances to the next ore. After coal it
+ * drops to a plain STONE_FALLBACK dig so the run always accomplishes something.
  *
- * Iron, copper, lapis, and diamond are NOT in the active scan list. Baritone
- * still picks them up incidentally as the bot mines through stone, but they
- * don't drive the search any more. Copper and lapis are even on the trash
- * list now so any incidental drops get tossed at the cactus on return home.
+ * Chat voting can still request any single ore directly (see CHAT_REQUESTED);
+ * that request is satisfied first, then the normal rotation resumes.
  *
- * Bug fix carried over from 1.1.0: cycle counter is keyed on ore type, so
- * retries within the same ore type accumulate properly and the
- * MAX_EXPLORE_CYCLES guard actually trips.
+ * The cycle counter is keyed on ore type, so retries within the same ore type
+ * accumulate properly and the MAX_EXPLORE_CYCLES guard actually trips.
  */
 public class MiningTask implements Task {
 
@@ -38,8 +32,14 @@ public class MiningTask implements Task {
         CHAT_REQUESTED_EXPLORE,
         EMERALD,
         EMERALD_EXPLORE,
+        DIAMOND,
+        DIAMOND_EXPLORE,
         GOLD,
         GOLD_EXPLORE,
+        IRON,
+        IRON_EXPLORE,
+        LAPIS,
+        LAPIS_EXPLORE,
         COAL,
         COAL_EXPLORE,
         STONE_FALLBACK,
@@ -48,22 +48,25 @@ public class MiningTask implements Task {
 
 
     /** Tracks which ore type is "active" so we know when to reset cycle counters. */
-    private enum OreType { EMERALD, GOLD, COAL, NONE }
+    private enum OreType { EMERALD, DIAMOND, GOLD, IRON, LAPIS, COAL, NONE }
 
     private static final int EXPLORE_AFTER_SECONDS    = 25;
     private static final int EXPLORE_DURATION_SECONDS = 18;
     private static final int MAX_EXPLORE_CYCLES       = 2;
-    private static final int STONE_FALLBACK_SECONDS   = 45;
+    /** Stone fallback runs long enough to fill the rest of the mining session. */
+    private static final int STONE_FALLBACK_SECONDS   = 300;
+    /** After a quota is met, keep mining target ore within this block radius. */
+    private static final int ORE_FINISH_RADIUS        = 4;
 
     private OreDemandTracker.OreTarget chatTarget;
     private int chatTargetStartCount;
     private BlockPos miningStagingPos;
 
-    private Stage   stage = Stage.EMERALD;
+    private Stage   stage = Stage.DIAMOND;
     private OreType currentOre = OreType.NONE;
     private int     stageStartTick;
 
-    private int   emeraldStart, goldStart, coalStart;
+    private int   emeraldStart, diamondStart, goldStart, ironStart, lapisStart, coalStart;
     private int   lastProgressTick;
     private int   lastProgressCount;
     /** Counts explore-then-retry attempts FOR THE CURRENT ore type. Resets only on ore-type change. */
@@ -97,7 +100,10 @@ public class MiningTask implements Task {
         if (mc.player == null) return;
     
         emeraldStart = countItem(mc.player, Items.EMERALD);
+        diamondStart = countItem(mc.player, Items.DIAMOND);
         goldStart    = countItem(mc.player, Items.RAW_GOLD);
+        ironStart    = countItem(mc.player, Items.RAW_IRON);
+        lapisStart   = countItem(mc.player, Items.LAPIS_LAZULI);
         coalStart    = countItem(mc.player, Items.COAL);
     
         ChatPilotClient.BARITONE.hardReset();
@@ -116,12 +122,22 @@ public class MiningTask implements Task {
     @Override
     public boolean tick() {
         var mc = MinecraftClient.getInstance();
+        if (ChatPilotClient.CONFIG.miningStopNearBedrock && isTooCloseToBedrock(mc)) {
+            ChatPilotMod.LOGGER.warn(
+                    "[ChatPilot][Mining] Reached bedrock safety floor y={}, ending mining task",
+                    mc.player.getBlockY()
+            );
+
+            ChatPilotClient.BARITONE.hardReset();
+            enterStage(Stage.DONE);
+            return true;
+        }
         if (mc.player == null) return false;
 
         switch (stage) {
             case CHAT_REQUESTED -> {
                 if (chatTarget == null) {
-                    enterStage(Stage.EMERALD);
+                    enterStage(Stage.DIAMOND);
                     return false;
                 }
             
@@ -134,28 +150,42 @@ public class MiningTask implements Task {
                 }
             }
             case GO_TO_STAGING -> tickGoToStaging(mc);
-                
+
+            case DIAMOND -> tickOreStage(mc, Items.DIAMOND, diamondStart,
+                ChatPilotClient.CONFIG.miningOreQuotaDiamond,
+                Stage.DIAMOND_EXPLORE, Stage.IRON, DIAMOND_BLOCKS);
+            case IRON    -> tickOreStage(mc, Items.RAW_IRON, ironStart,
+                ChatPilotClient.CONFIG.miningOreQuotaIron,
+                Stage.IRON_EXPLORE, Stage.EMERALD, IRON_BLOCKS);
             case EMERALD -> tickOreStage(mc, Items.EMERALD, emeraldStart,
                 ChatPilotClient.CONFIG.miningOreQuotaEmerald,
                 Stage.EMERALD_EXPLORE, Stage.GOLD, EMERALD_BLOCKS);
             case GOLD    -> tickOreStage(mc, Items.RAW_GOLD, goldStart,
                 ChatPilotClient.CONFIG.miningOreQuotaGold,
-                Stage.GOLD_EXPLORE, Stage.COAL, GOLD_BLOCKS);
+                Stage.GOLD_EXPLORE, Stage.LAPIS, GOLD_BLOCKS);
+            case LAPIS   -> tickOreStage(mc, Items.LAPIS_LAZULI, lapisStart,
+                ChatPilotClient.CONFIG.miningOreQuotaLapis,
+                Stage.LAPIS_EXPLORE, Stage.COAL, LAPIS_BLOCKS);
             case COAL    -> tickOreStage(mc, Items.COAL, coalStart,
                 ChatPilotClient.CONFIG.miningOreQuotaCoal,
                 Stage.COAL_EXPLORE, Stage.STONE_FALLBACK, COAL_BLOCKS);
 
             case EMERALD_EXPLORE,
+                 DIAMOND_EXPLORE,
                  GOLD_EXPLORE,
+                 IRON_EXPLORE,
+                 LAPIS_EXPLORE,
                  COAL_EXPLORE -> tickExploreStage();
 
             case STONE_FALLBACK -> {
+                // Post-rotation ore sweep: keep collecting ANY ore (never plain
+                // stone/deepslate) until the mining session's time runs out.
                 if (ticksInStage() > STONE_FALLBACK_SECONDS * 20) {
                     enterStage(Stage.DONE);
                     return true;
                 }
                 if (!ChatPilotClient.BARITONE.isMining()) {
-                    ChatPilotClient.BARITONE.mineBlocks(0, "stone", "deepslate", "cobbled_deepslate");
+                    ChatPilotClient.BARITONE.mineBlocks(0, ALL_ORE_BLOCKS);
                 }
             }
             case DONE -> { return true; }
@@ -221,7 +251,7 @@ public class MiningTask implements Task {
             }
         }
     
-        enterStage(Stage.EMERALD);
+        enterStage(Stage.DIAMOND);
     }
 
     private void tickOreStage(MinecraftClient mc, net.minecraft.item.Item targetItem,
@@ -233,23 +263,25 @@ public class MiningTask implements Task {
             lastProgressTick  = clientTick();
         }
         if (got >= quota) {
-            ChatPilotMod.LOGGER.info("[ChatPilot] {} quota met ({}/{}), advancing", stage, got, quota);
-            enterStage(nextStage);
-            return;
+            // Quota met - but don't walk away from a half-mined vein. Keep
+            // mining while target ore is still within a few blocks; advance
+            // only once the immediate area has been cleared out.
+            if (!oreBlocksNearby(mc, mineBlocks)) {
+                ChatPilotMod.LOGGER.info("[ChatPilot] {} quota met ({}/{}) and area cleared, advancing",
+                        stage, got, quota);
+                enterStage(nextStage);
+                return;
+            }
         }
         if (!ChatPilotClient.BARITONE.isMining()) {
             ChatPilotClient.BARITONE.mineBlocks(0, mineBlocks);
         }
         if (clientTick() - lastProgressTick > EXPLORE_AFTER_SECONDS * 20) {
-            if (exploreCycles < MAX_EXPLORE_CYCLES) {
-                exploreCycles++;
-                ChatPilotMod.LOGGER.info("[ChatPilot] {} stalled, exploring outward (cycle {}/{})",
-                    stage, exploreCycles, MAX_EXPLORE_CYCLES);
-                enterStage(exploreStage);
-            } else {
-                ChatPilotMod.LOGGER.info("[ChatPilot] {} exhausted exploration, advancing", stage);
-                enterStage(nextStage);
-            }
+            // No exploring/wandering: the bot stays in one mining area. If an
+            // ore is not turning up here, move to the next ore in place rather
+            // than walking off to a brand new spot.
+            ChatPilotMod.LOGGER.info("[ChatPilot] {} stalled, moving to next ore (staying put)", stage);
+            enterStage(nextStage);
         }
     }
 
@@ -262,16 +294,16 @@ public class MiningTask implements Task {
             lastProgressTick = clientTick();
         }
     
-        if (got >= chatTarget.defaultQuota) {
+        if (got >= chatTarget.defaultQuota && !oreBlocksNearby(mc, chatTarget.blocks)) {
             ChatPilotMod.LOGGER.info(
-                    "[ChatPilot] Chat target {} quota met ({}/{}), advancing to normal mining",
+                    "[ChatPilot] Chat target {} quota met ({}/{}) and area cleared, advancing",
                     chatTarget.id,
                     got,
                     chatTarget.defaultQuota
             );
     
             chatTarget = null;
-            enterStage(Stage.EMERALD);
+            enterStage(Stage.DIAMOND);
             return;
         }
     
@@ -280,23 +312,13 @@ public class MiningTask implements Task {
         }
     
         if (clientTick() - lastProgressTick > EXPLORE_AFTER_SECONDS * 20) {
-            if (exploreCycles < MAX_EXPLORE_CYCLES) {
-                exploreCycles++;
-                ChatPilotMod.LOGGER.info(
-                        "[ChatPilot] Chat target {} stalled, exploring outward ({}/{})",
-                        chatTarget.id,
-                        exploreCycles,
-                        MAX_EXPLORE_CYCLES
-                );
-                enterStage(Stage.CHAT_REQUESTED_EXPLORE);
-            } else {
-                ChatPilotMod.LOGGER.info(
-                        "[ChatPilot] Chat target {} exhausted exploration, falling back to normal mining",
-                        chatTarget.id
-                );
-                chatTarget = null;
-                enterStage(Stage.EMERALD);
-            }
+            // No exploring/wandering - switch to the normal in-place rotation.
+            ChatPilotMod.LOGGER.info(
+                    "[ChatPilot] Chat target {} stalled, switching to normal mining rotation",
+                    chatTarget.id
+            );
+            chatTarget = null;
+            enterStage(Stage.DIAMOND);
         }
     }
 
@@ -307,7 +329,10 @@ public class MiningTask implements Task {
         if (ticksInStage() > EXPLORE_DURATION_SECONDS * 20) {
             switch (stage) {
                 case EMERALD_EXPLORE -> enterStage(Stage.EMERALD);
+                case DIAMOND_EXPLORE -> enterStage(Stage.DIAMOND);
                 case GOLD_EXPLORE    -> enterStage(Stage.GOLD);
+                case IRON_EXPLORE    -> enterStage(Stage.IRON);
+                case LAPIS_EXPLORE   -> enterStage(Stage.LAPIS);
                 case COAL_EXPLORE    -> enterStage(Stage.COAL);
                 default              -> enterStage(Stage.STONE_FALLBACK);
             }
@@ -337,7 +362,7 @@ public class MiningTask implements Task {
                 if (chatTarget != null) {
                     ChatPilotClient.BARITONE.mineBlocks(0, chatTarget.blocks);
                 } else {
-                    enterStage(Stage.EMERALD);
+                    enterStage(Stage.DIAMOND);
                 }
             }
             case GO_TO_STAGING -> {
@@ -355,13 +380,18 @@ public class MiningTask implements Task {
             case CHAT_REQUESTED_EXPLORE -> ChatPilotClient.BARITONE.run("explore");
                 
             case EMERALD           -> ChatPilotClient.BARITONE.mineBlocks(0, EMERALD_BLOCKS);
+            case DIAMOND           -> ChatPilotClient.BARITONE.mineBlocks(0, DIAMOND_BLOCKS);
             case GOLD              -> ChatPilotClient.BARITONE.mineBlocks(0, GOLD_BLOCKS);
+            case IRON              -> ChatPilotClient.BARITONE.mineBlocks(0, IRON_BLOCKS);
+            case LAPIS             -> ChatPilotClient.BARITONE.mineBlocks(0, LAPIS_BLOCKS);
             case COAL              -> ChatPilotClient.BARITONE.mineBlocks(0, COAL_BLOCKS);
             case EMERALD_EXPLORE,
+                 DIAMOND_EXPLORE,
                  GOLD_EXPLORE,
+                 IRON_EXPLORE,
+                 LAPIS_EXPLORE,
                  COAL_EXPLORE      -> ChatPilotClient.BARITONE.run("explore");
-            case STONE_FALLBACK    -> ChatPilotClient.BARITONE.mineBlocks(0,
-                                          "stone", "deepslate", "cobbled_deepslate");
+            case STONE_FALLBACK    -> ChatPilotClient.BARITONE.mineBlocks(0, ALL_ORE_BLOCKS);
             case DONE              -> {}
         }
     }
@@ -369,7 +399,10 @@ public class MiningTask implements Task {
     private static OreType oreTypeOf(Stage s) {
         return switch (s) {
             case EMERALD, EMERALD_EXPLORE -> OreType.EMERALD;
+            case DIAMOND, DIAMOND_EXPLORE -> OreType.DIAMOND;
             case GOLD, GOLD_EXPLORE -> OreType.GOLD;
+            case IRON, IRON_EXPLORE -> OreType.IRON;
+            case LAPIS, LAPIS_EXPLORE -> OreType.LAPIS;
             case COAL, COAL_EXPLORE -> OreType.COAL;
             default -> OreType.NONE;
         };
@@ -381,7 +414,7 @@ public class MiningTask implements Task {
         ChatPilotClient.BARITONE.hardReset();
         switch (stage) {
             case CHAT_REQUESTED, CHAT_REQUESTED_EXPLORE -> {
-                advanceOrExplore(Stage.CHAT_REQUESTED_EXPLORE, Stage.EMERALD);
+                advanceOrExplore(Stage.CHAT_REQUESTED_EXPLORE, Stage.DIAMOND);
                 return true;
             }
 
@@ -389,8 +422,11 @@ public class MiningTask implements Task {
                 startActualMining(MinecraftClient.getInstance());
                 return true;
             }
+            case DIAMOND, DIAMOND_EXPLORE -> { advanceOrExplore(Stage.DIAMOND_EXPLORE, Stage.IRON);            return true; }
+            case IRON,    IRON_EXPLORE    -> { advanceOrExplore(Stage.IRON_EXPLORE,    Stage.EMERALD);         return true; }
             case EMERALD, EMERALD_EXPLORE -> { advanceOrExplore(Stage.EMERALD_EXPLORE, Stage.GOLD);            return true; }
-            case GOLD,    GOLD_EXPLORE    -> { advanceOrExplore(Stage.GOLD_EXPLORE,    Stage.COAL);            return true; }
+            case GOLD,    GOLD_EXPLORE    -> { advanceOrExplore(Stage.GOLD_EXPLORE,    Stage.LAPIS);           return true; }
+            case LAPIS,   LAPIS_EXPLORE   -> { advanceOrExplore(Stage.LAPIS_EXPLORE,   Stage.COAL);            return true; }
             case COAL,    COAL_EXPLORE    -> { advanceOrExplore(Stage.COAL_EXPLORE,    Stage.STONE_FALLBACK);  return true; }
             case STONE_FALLBACK           -> { enterStage(Stage.DONE); return true; }
             case DONE                     -> { return false; }
@@ -399,12 +435,9 @@ public class MiningTask implements Task {
     }
 
     private void advanceOrExplore(Stage exploreStage, Stage skipStage) {
-        if (exploreCycles < MAX_EXPLORE_CYCLES) {
-            exploreCycles++;
-            enterStage(exploreStage);
-        } else {
-            enterStage(skipStage);
-        }
+        // Exploring is disabled - the bot mines one area. On a stall recovery,
+        // move straight to the next ore instead of wandering off to a new spot.
+        enterStage(skipStage);
     }
 
     @Override
@@ -429,10 +462,30 @@ public class MiningTask implements Task {
 
     private static final String[] EMERALD_BLOCKS =
         { "emerald_ore", "deepslate_emerald_ore" };
+    private static final String[] DIAMOND_BLOCKS =
+        { "diamond_ore", "deepslate_diamond_ore" };
     private static final String[] GOLD_BLOCKS =
         { "gold_ore", "deepslate_gold_ore", "nether_gold_ore" };
+    private static final String[] IRON_BLOCKS =
+        { "iron_ore", "deepslate_iron_ore" };
+    private static final String[] LAPIS_BLOCKS =
+        { "lapis_ore", "deepslate_lapis_ore" };
     private static final String[] COAL_BLOCKS =
         { "coal_ore", "deepslate_coal_ore" };
+
+    /** Every ore the bot will mine. Used by the post-rotation ore sweep so it
+     *  keeps collecting ores - never plain stone/deepslate - for the rest of
+     *  the session. */
+    private static final String[] ALL_ORE_BLOCKS = {
+        "diamond_ore",  "deepslate_diamond_ore",
+        "iron_ore",     "deepslate_iron_ore",
+        "gold_ore",     "deepslate_gold_ore", "nether_gold_ore",
+        "emerald_ore",  "deepslate_emerald_ore",
+        "lapis_ore",    "deepslate_lapis_ore",
+        "redstone_ore", "deepslate_redstone_ore",
+        "copper_ore",   "deepslate_copper_ore",
+        "coal_ore",     "deepslate_coal_ore"
+    };
 
     /* ---------- helpers ---------- */
 
@@ -449,5 +502,45 @@ public class MiningTask implements Task {
             if (!s.isEmpty() && s.getItem() == item) total += s.getCount();
         }
         return total;
+    }
+
+    /**
+     * True if any of the given ore block ids sits within ORE_FINISH_RADIUS of
+     * the player. Used after a quota is met to keep clearing the rest of a
+     * vein instead of walking off and leaving ore behind.
+     */
+    private static boolean oreBlocksNearby(MinecraftClient mc, String[] oreBlocks) {
+        if (mc == null || mc.player == null || mc.world == null || oreBlocks == null) {
+            return false;
+        }
+
+        BlockPos center = mc.player.getBlockPos();
+
+        for (int dx = -ORE_FINISH_RADIUS; dx <= ORE_FINISH_RADIUS; dx++) {
+            for (int dy = -ORE_FINISH_RADIUS; dy <= ORE_FINISH_RADIUS; dy++) {
+                for (int dz = -ORE_FINISH_RADIUS; dz <= ORE_FINISH_RADIUS; dz++) {
+                    String path = net.minecraft.registry.Registries.BLOCK
+                            .getId(mc.world.getBlockState(center.add(dx, dy, dz)).getBlock())
+                            .getPath();
+
+                    for (String ore : oreBlocks) {
+                        if (path.equals(ore)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static boolean isTooCloseToBedrock(MinecraftClient mc) {
+        if (mc == null || mc.player == null || mc.world == null || ChatPilotClient.CONFIG == null) {
+            return false;
+        }
+
+        int safeY = mc.world.getBottomY() + Math.max(6, ChatPilotClient.CONFIG.bedrockSafeYOffset);
+        return mc.player.getBlockY() <= safeY;
     }
 }

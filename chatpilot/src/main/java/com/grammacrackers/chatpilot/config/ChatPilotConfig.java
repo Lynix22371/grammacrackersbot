@@ -34,7 +34,7 @@ public class ChatPilotConfig {
      */
     public int waterEscapeIgnoreSurfaceDepthBlocks = 2;
 
-    public double lookWhereWalkingYawDeadzone = 8.0;
+
 
     // === Voting ===
     public int    voteWindowSeconds = 30;
@@ -56,24 +56,28 @@ public class ChatPilotConfig {
 
     // === Camera / stream presentation ===
     public boolean lookWhereWalking = true;
-    
+    public double lookWhereWalkingPitch = 3.0;
     /**
-     * Visible camera turn speed while Baritone is simply walking.
-     * Higher = snappier, lower = smoother.
+     * Peak degrees the camera yaw may turn per tick while following the path.
+     * The turn is eased, so this is only the cap reached on sharp corners.
+     * Must be large enough to keep up with the bot - the old 0.35 value was
+     * far too slow now that the smooth manager (not Baritone) drives the
+     * camera. Raise it for snappier turns, lower it for lazier ones.
      */
-    public double lookWhereWalkingMaxYawPerTick = 3.0;
+    public double lookWhereWalkingMaxYawPerTick = 6.0;
     public double lookWhereWalkingMaxPitchPerTick = 2.0;
-    
+    public double lookWhereWalkingYawDeadzone = 3.0;
+    public double lookWhereWalkingGoalMinDistance = 5.0;
+    public double lookWhereWalkingPathLookaheadBlocks = 10.0;
+
+    // === Bedrock / deep mining safety ===
+    public boolean miningStopNearBedrock = true;
+
     /**
-     * Slightly downward looks more natural on stream than pitch=0.
-     * Use 0.0 if you want it to look exactly horizontally.
+     * Safe Y above world bottom.
+     * In the Overworld bottom is usually -64, so 12 means safe floor is about -52.
      */
-    public double lookWhereWalkingPitch = 4.0;
-    
-    /**
-     * Ignore tiny jitter when the player is not really moving.
-     */
-    public double lookWhereWalkingMinSpeed = 0.015;
+    public int bedrockSafeYOffset = 12;
     
 
     // === HUD layout ===
@@ -90,18 +94,30 @@ public class ChatPilotConfig {
     // === Home / protection ===
     public int houseProtectionRadius = 25;
     public int chestSearchRadius = 12;
+
+    /**
+     * No-dig zone: within this horizontal radius of the home bed, Baritone is
+     * not allowed to break any blocks. This keeps the bot from tunnelling or
+     * surfacing through the ground near the house and leaving holes around it.
+     * The bot only digs once it is outside this radius (i.e. out at the mining
+     * area). Capped automatically so it never exceeds where mining starts.
+     */
+    public int houseNoDigRadius = 100;
     
     /**
-     * Mining should not start right next to the house.
-     * The bot first walks this far from the bed, then starts Baritone mining.
+     * Mining happens this far from the house. The bot walks out to one fixed
+     * staging point this far from the bed, then mines that area for the whole
+     * session - it does not wander off to other spots.
      */
-    public int miningMinDistanceFromHome = 100;
+    public int miningMinDistanceFromHome = 200;
     
     /**
-     * When returning from underground mining, the bot first exits near this
-     * outside mining point, then walks home on the surface.
+     * When returning from mining, the bot first surfaces at this distance from
+     * home, then walks home on top of the ground. Kept larger than
+     * houseNoDigRadius so the bot is fully surfaced before it reaches the
+     * no-dig stretch near the house.
      */
-    public int miningReturnExitDistanceFromHome = 100;
+    public int miningReturnExitDistanceFromHome = 130;
     
     /**
      * Direction of the mining staging point from home.
@@ -119,16 +135,19 @@ public class ChatPilotConfig {
     public boolean waterEscapeEnabled = true;
     
     /**
-     * How long the bot may keep its head underwater before emergency swimming starts.
-     * 60 ticks = 3 seconds.
+     * How long the bot may keep its head fully underwater (and not near the
+     * surface) before emergency swimming starts. Resets the moment the bot
+     * surfaces, so brief dips never trigger it. 600 ticks = 30 seconds.
      */
     public int waterEscapeSubmergedTicks = 600;
-    
+
     /**
-     * Start emergency escape immediately if air drops below this.
-     * Vanilla max air is 300 ticks.
+     * Start emergency escape once remaining air drops to/below this.
+     * Vanilla max air is 300 ticks, so this MUST stay well below 300 - a value
+     * at or above 300 makes the check always true and the bot would bail out
+     * of even shallow water. 60 ticks = 3 seconds of air left.
      */
-    public int waterEscapeStartAirTicks = 300;
+    public int waterEscapeStartAirTicks = 60;
     
     /**
      * Radius used to look for nearby water surface/air.
@@ -152,23 +171,23 @@ public class ChatPilotConfig {
     public int    maxConsecutiveStuckRecoveries = 5;
 
     // === Mining task targets ===
-    // v1.2.0 refocus: mining now targets emerald primarily (rare and exciting),
-    // followed by gold (moderate), and coal (common and reliable). Iron, copper,
-    // lapis, and diamond are no longer actively pursued. Baritone will still
-    // pick up incidental drops as it passes through stone.
+    // The normal (non-voted) mining rotation works through every ore below in
+    // priority order: diamond -> iron -> emerald -> gold -> lapis -> coal. Each
+    // ore has its own quota; once met (or exploration is exhausted) the bot
+    // advances to the next ore. Chat votes can still request any single ore.
     //
-    // Why: at the previous coal/copper/lapis/gold rate the bot was outpacing
-    // the chest's capacity for those materials and the trash cactus was
-    // overflowing. Lower active quotas + emerald hunt = less inventory churn,
-    // more "is she gonna find one this time?" excitement on stream.
+    // Each quota is intentionally modest so the bot keeps moving between ores
+    // and the stream stays varied instead of grinding one vein forever.
+    public int    miningOreQuotaDiamond = 5;
+    public int    miningOreQuotaIron    = 16;
     public int    miningOreQuotaEmerald = 4;
     public int    miningOreQuotaGold    = 8;
+    public int    miningOreQuotaLapis   = 12;
     public int    miningOreQuotaCoal    = 16;
 
-    /** Legacy fields kept so older configs keep parsing cleanly. Unused. */
+    /** Legacy field kept so older configs keep parsing cleanly. Copper is not
+     *  in the normal rotation (chat can still vote for it). */
     public int    miningOreQuotaCopper  = 0;
-    public int    miningOreQuotaLapis   = 0;
-    public int    miningOreQuotaIron    = 0;
 
     // === Chat-driven mining ===
     public boolean miningUseChatDemand = true;
@@ -277,7 +296,6 @@ public class ChatPilotConfig {
         "minecraft:red_sand",
         "minecraft:raw_copper",
         "minecraft:copper_ingot",
-        "minecraft:lapis_lazuli",
         "minecraft:andesite",
         "minecraft:diorite",
         "minecraft:granite",
@@ -304,6 +322,44 @@ public class ChatPilotConfig {
                     if (cfg.trashItemIds == null || cfg.trashItemIds.isEmpty()) {
                         cfg.trashItemIds = new ChatPilotConfig().trashItemIds;
                     }
+
+                    // Migration: diamond/iron/lapis are mined again in the
+                    // normal rotation. Older configs disabled iron/lapis with a
+                    // 0 quota - bump any non-positive quota back to a default.
+                    ChatPilotConfig defaults = new ChatPilotConfig();
+                    if (cfg.miningOreQuotaDiamond <= 0) cfg.miningOreQuotaDiamond = defaults.miningOreQuotaDiamond;
+                    if (cfg.miningOreQuotaIron   <= 0) cfg.miningOreQuotaIron   = defaults.miningOreQuotaIron;
+                    if (cfg.miningOreQuotaLapis  <= 0) cfg.miningOreQuotaLapis  = defaults.miningOreQuotaLapis;
+
+                    // Lapis is a mined ore now, so it must not be tossed as
+                    // trash on the return-home cactus run.
+                    cfg.trashItemIds.removeIf(s -> s != null
+                            && (s.equalsIgnoreCase("minecraft:lapis_lazuli")
+                             || s.equalsIgnoreCase("lapis_lazuli")));
+
+                    // The camera turn-rate settings used to be tiny because
+                    // Baritone snapped the camera itself. The smooth look
+                    // manager now drives it, so stale tiny values leave the
+                    // camera unable to keep up - bump them to usable defaults.
+                    if (cfg.lookWhereWalkingMaxYawPerTick < 3.0) {
+                        cfg.lookWhereWalkingMaxYawPerTick = defaults.lookWhereWalkingMaxYawPerTick;
+                    }
+                    if (cfg.lookWhereWalkingMaxPitchPerTick < 1.0) {
+                        cfg.lookWhereWalkingMaxPitchPerTick = defaults.lookWhereWalkingMaxPitchPerTick;
+                    }
+
+                    // Mining now happens at one fixed spot farther from home.
+                    // Bump the old default (100) up to the new distance.
+                    if (cfg.miningMinDistanceFromHome <= 100) {
+                        cfg.miningMinDistanceFromHome = defaults.miningMinDistanceFromHome;
+                    }
+
+                    // The return surfacing point must sit outside the no-dig
+                    // ring so the bot is on top before the no-dig stretch home.
+                    if (cfg.miningReturnExitDistanceFromHome <= 100) {
+                        cfg.miningReturnExitDistanceFromHome = defaults.miningReturnExitDistanceFromHome;
+                    }
+
                     Files.writeString(file, gson.toJson(cfg));
                     return cfg;
                 }

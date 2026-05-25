@@ -7,6 +7,7 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.HostileEntity;
+import net.minecraft.entity.mob.ZombifiedPiglinEntity;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
@@ -105,7 +106,8 @@ public class CombatHandler {
             // status effects) is NOT a reason to enter combat — there's
             // nothing to fight.
             if (player.getAttacker() instanceof LivingEntity attacker
-                && attacker instanceof HostileEntity) {
+                && attacker instanceof HostileEntity
+                && !isCombatExcluded(attacker)) {
                 ticksSinceDamage = 0;
                 target = attacker;
             }
@@ -120,7 +122,8 @@ public class CombatHandler {
 
         // Choose target: keep the existing one if alive and in range, else
         // the adjacent threat if any
-        if (target != null && (!target.isAlive() || target.distanceTo(player) > ENGAGE_RADIUS)) {
+        if (target != null && (!target.isAlive() || target.distanceTo(player) > ENGAGE_RADIUS
+                || isCombatExcluded(target))) {
             target = null;
         }
         if (target == null && adjacent != null) {
@@ -202,12 +205,22 @@ public class CombatHandler {
         LivingEntity best = null;
         double bestDist = Double.MAX_VALUE;
         for (Entity e : player.getWorld().getOtherEntities(player, area)) {
-            if (e instanceof HostileEntity h && h.isAlive()) {
+            if (e instanceof HostileEntity h && h.isAlive() && !isCombatExcluded(h)) {
                 double d = h.squaredDistanceTo(player);
                 if (d < bestDist) { bestDist = d; best = h; }
             }
         }
         return best;
+    }
+
+    /**
+     * Mobs the bot must never fight. Zombified piglins are neutral until
+     * provoked - attacking one turns the whole pack hostile and they swarm
+     * the bot - so it leaves them alone even if it gets hit. Everything else,
+     * including normal piglins and piglin brutes, is still fair game.
+     */
+    private static boolean isCombatExcluded(Entity e) {
+        return e instanceof ZombifiedPiglinEntity;
     }
 
     private static void faceEntity(ClientPlayerEntity player, Entity entity) {

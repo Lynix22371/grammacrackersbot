@@ -118,13 +118,17 @@ public class TaskManager {
                 ChatPilotMod.LOGGER.warn("[ChatPilot] Stall detected ({} of {})",
                     stuckRecoveriesUsed, ChatPilotClient.CONFIG.maxConsecutiveStuckRecoveries);
                 if (stuckRecoveriesUsed > ChatPilotClient.CONFIG.maxConsecutiveStuckRecoveries) {
-                    ChatPilotMod.LOGGER.warn("[ChatPilot] Too many stalls");
                     if (phase == Phase.RETURNING_HOME || phase == Phase.DEPOSITING) {
-                        // Already trying to go home but stuck. Don't loop —
-                        // give up and let the next vote pick something else.
-                        ChatPilotMod.LOGGER.warn("[ChatPilot] Already returning home, finalizing to cooldown");
-                        finishToCooldown();
+                        // The bot must ALWAYS make it home — never bail the
+                        // return-home chain back into voting. Reset the recovery
+                        // budget and keep trying instead of giving up.
+                        ChatPilotMod.LOGGER.warn("[ChatPilot] Return-home stalled repeatedly; resetting recovery budget and retrying");
+                        stuckRecoveriesUsed = 0;
+                        ChatPilotClient.STUCK.reset();
+                        ChatPilotClient.BARITONE.hardReset();
+                        try { current.onStuck(); } catch (Throwable ignored) {}
                     } else {
+                        ChatPilotMod.LOGGER.warn("[ChatPilot] Too many stalls, returning home");
                         beginReturnHome();
                     }
                     return;

@@ -53,7 +53,17 @@ public class WaterEscapeManager {
             submergedTicks = 0;
         }
 
-        boolean airLow = p.getAir() <= ChatPilotClient.CONFIG.waterEscapeStartAirTicks;
+        /*
+         * Vanilla max air is 300 ticks. A trigger value at or above 300 would
+         * make airLow permanently true, so the bot would "escape" the instant
+         * its head touched water - even a brief, shallow dip. Treat any such
+         * unreasonable value as a genuine low-air threshold instead.
+         */
+        int airTrigger = ChatPilotClient.CONFIG.waterEscapeStartAirTicks;
+        if (airTrigger >= 300) {
+            airTrigger = 60;
+        }
+        boolean airLow = p.getAir() <= airTrigger;
 
         // Emergency only if:
         // 1) head is in water,

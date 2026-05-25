@@ -50,7 +50,7 @@ public class FlintTask implements Task {
     private static final double PICKUP_RADIUS = 8.0;
     private static final int PICKUP_TIMEOUT_TICKS = 20 * 12;
     private BlockPos openSpaceTarget;
-    private int openSpaceAttempts;
+    private int lastOpenSpaceScanTick;
 
     private int pickupStartTick;
 
@@ -120,28 +120,86 @@ public class FlintTask implements Task {
 
     private void tickCollectGravel(MinecraftClient mc) {
         int gravel = countItem(mc.player, Items.GRAVEL);
-        int minBeforeCycle = Math.max(1, ChatPilotClient.CONFIG.flintMinGravelBeforeCycle);
+        int towerHeight = Math.max(1, Math.min(4, ChatPilotClient.CONFIG.flintTowerHeight));
 
-        if (gravel >= minBeforeCycle) {
-            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Gravel ready: {}", gravel);
+        // Already holding enough gravel to build a column - use it, never dig
+        // for more. (The bot normally keeps two stacks from the deposit run.)
+        if (gravel >= towerHeight) {
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] {} gravel on hand, building without mining", gravel);
             ChatPilotClient.BARITONE.hardReset();
-            enterStage(Stage.BUILD_COLUMN);
+            // Relocate to a proper open area before building.
+            enterStage(Stage.MOVE_TO_OPEN_SPACE);
             return;
         }
 
-        int elapsed = ticksInStage();
-        if (gravel > 0 && elapsed > ChatPilotClient.CONFIG.flintCollectTimeoutTicks) {
+        // Have a little gravel and the collect is dragging on - just build with
+        // what we have rather than mining forever.
+        if (gravel > 0 && ticksInStage() > ChatPilotClient.CONFIG.flintCollectTimeoutTicks) {
             ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Collect timeout, using available gravel: {}", gravel);
             ChatPilotClient.BARITONE.hardReset();
-            enterStage(Stage.BUILD_COLUMN);
+            enterStage(Stage.MOVE_TO_OPEN_SPACE);
             return;
         }
 
+        // Out of gravel and must dig a fresh batch. That must NOT happen by the
+        // bed - walk clear of the house no-dig zone first so the bot never
+        // craters the yard.
+        BlockPos clearSpot = gravelDigSpotClearOfHouse(mc);
+        if (clearSpot != null) {
+            if (!ChatPilotClient.BARITONE.isPathing()) {
+                ChatPilotClient.BARITONE.gotoXZ(clearSpot.getX(), clearSpot.getZ());
+            }
+            return;
+        }
+
+        // Clear of the house - dig the gravel batch here.
         if (!ChatPilotClient.BARITONE.isMining()) {
-            int want = Math.max(minBeforeCycle, ChatPilotClient.CONFIG.flintGravelBatchSize);
+            int want = Math.max(towerHeight, ChatPilotClient.CONFIG.flintGravelBatchSize);
             ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Mining gravel batch: {}", want);
             ChatPilotClient.BARITONE.mineBlocks(want, "gravel");
         }
+    }
+
+    /**
+     * If the bot sits inside the house no-dig ring, returns a point just past
+     * that ring (in the bot's current bearing from home) to walk to before
+     * digging gravel. Returns {@code null} when the bot is already clear, or
+     * when there is no home to keep away from.
+     */
+    private static BlockPos gravelDigSpotClearOfHouse(MinecraftClient mc) {
+        if (mc.player == null || ChatPilotClient.HOME == null
+                || !ChatPilotClient.HOME.hasHome() || ChatPilotClient.CONFIG == null) {
+            return null;
+        }
+
+        BlockPos bed = ChatPilotClient.HOME.getBedPos();
+        if (bed == null) {
+            return null;
+        }
+
+        // Keep gravel digging this far beyond the no-dig ring, so even the
+        // gravel Baritone roams to collect stays out of the protected zone.
+        int clear = Math.max(0, ChatPilotClient.CONFIG.houseNoDigRadius) + 32;
+
+        double dx = mc.player.getX() - (bed.getX() + 0.5);
+        double dz = mc.player.getZ() - (bed.getZ() + 0.5);
+        double dist2 = dx * dx + dz * dz;
+
+        if (dist2 >= (double) clear * clear) {
+            return null;   // already well clear of the house
+        }
+
+        double len = Math.sqrt(dist2);
+        if (len < 1.0) {
+            dx = 1.0;
+            dz = 0.0;
+            len = 1.0;
+        }
+
+        int reach = clear + 12;
+        int tx = bed.getX() + (int) Math.round(dx / len * reach);
+        int tz = bed.getZ() + (int) Math.round(dz / len * reach);
+        return new BlockPos(tx, bed.getY(), tz);
     }
 
     private void tickBuildColumn(MinecraftClient mc) {
@@ -243,13 +301,9 @@ public class FlintTask implements Task {
         }
 
         if (ticksInStage() > ChatPilotClient.CONFIG.flintMineCycleTimeoutTicks) {
-            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Mine cycle timeout, rebuilding/collecting");
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Mine cycle timeout, collecting drops");
             columnBase = null;
-            if (countItem(mc.player, Items.GRAVEL) > 0) {
-                enterStage(Stage.BUILD_COLUMN);
-            } else {
-                enterStage(Stage.COLLECT_GRAVEL);
-            }
+            enterStage(Stage.PICKUP_DROPS);
             return;
         }
 
@@ -257,11 +311,9 @@ public class FlintTask implements Task {
             airTicksAtBase++;
 
             if (airTicksAtBase > 15) {
-                if (countItem(mc.player, Items.GRAVEL) > 0) {
-                    enterStage(Stage.BUILD_COLUMN);
-                } else {
-                    enterStage(Stage.COLLECT_GRAVEL);
-                }
+                // Column mined out - go pick up the flint/gravel it dropped
+                // before doing anything else, so nothing is left behind.
+                enterStage(Stage.PICKUP_DROPS);
             }
 
             return;
@@ -349,11 +401,23 @@ public class FlintTask implements Task {
         ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Stuck recovery during {}", stage);
 
         if (stage == Stage.COLLECT_GRAVEL) {
+            // Let tickCollectGravel re-decide next tick (walk clear of the
+            // house, or mine). Never blindly mine here - that could dig at home.
             ChatPilotClient.BARITONE.hardReset();
-            ChatPilotClient.BARITONE.mineBlocks(
-                    Math.max(16, ChatPilotClient.CONFIG.flintGravelBatchSize),
-                    "gravel"
-            );
+            return true;
+        }
+
+        if (stage == Stage.MOVE_TO_OPEN_SPACE) {
+            // Re-path: drop the current target so the next tick re-scans and
+            // re-routes (toward home if needed). Stay in this stage so its
+            // give-up timer keeps running.
+            ChatPilotClient.BARITONE.hardReset();
+            openSpaceTarget = null;
+            return true;
+        }
+
+        if (stage == Stage.PICKUP_DROPS) {
+            advanceFromPickup(MinecraftClient.getInstance());
             return true;
         }
 
@@ -386,12 +450,9 @@ public class FlintTask implements Task {
 
     @Override
     public void onCombatEnd() {
-        if (stage == Stage.COLLECT_GRAVEL) {
-            ChatPilotClient.BARITONE.mineBlocks(
-                    Math.max(16, ChatPilotClient.CONFIG.flintGravelBatchSize),
-                    "gravel"
-            );
-        }
+        // The stage tick handlers re-issue their own Baritone goals (and
+        // tickCollectGravel must re-decide walk-clear vs. mine), so nothing
+        // needs to be re-issued here.
     }
 
     @Override
@@ -487,22 +548,41 @@ public class FlintTask implements Task {
             selectInventorySlot(mc, bestSlot, ChatPilotClient.CONFIG.flintToolHotbarSlot);
         }
     }
+    /**
+     * Called after a drop-collection pass. If the flint target is met the task
+     * finishes; otherwise it loops back to mining another column. This makes
+     * drop pickup happen after EVERY column, so flint/gravel is never left
+     * scattered behind when the task ends.
+     */
+    private void advanceFromPickup(MinecraftClient mc) {
+        releaseKeys();
+
+        int flint = countItem(mc.player, Items.FLINT);
+        int target = Math.max(1, ChatPilotClient.CONFIG.flintTargetCount);
+
+        if (flint >= target) {
+            enterStage(Stage.DONE);
+        } else if (countItem(mc.player, Items.GRAVEL) > 0) {
+            enterStage(Stage.BUILD_COLUMN);
+        } else {
+            enterStage(Stage.COLLECT_GRAVEL);
+        }
+    }
+
     private void tickPickupDrops(MinecraftClient mc) {
         ChatPilotClient.BARITONE.stop();
 
         ItemEntity nearest = findNearestFlintOrGravelDrop(mc);
 
         if (nearest == null) {
-            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] No nearby flint/gravel drops left, finishing");
-            releaseKeys();
-            enterStage(Stage.DONE);
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Drops collected");
+            advanceFromPickup(mc);
             return;
         }
 
         if (clientTick() - pickupStartTick > PICKUP_TIMEOUT_TICKS) {
-            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Pickup timeout, finishing anyway");
-            releaseKeys();
-            enterStage(Stage.DONE);
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Pickup timeout");
+            advanceFromPickup(mc);
             return;
         }
 
@@ -660,49 +740,62 @@ public class FlintTask implements Task {
     private void tickMoveToOpenSpace(MinecraftClient mc) {
         int height = Math.max(1, Math.min(4, ChatPilotClient.CONFIG.flintTowerHeight));
 
-        if (openSpaceTarget == null) {
-            openSpaceTarget = findOpenBuildStandPos(mc, height);
-
-            if (openSpaceTarget == null) {
-                openSpaceAttempts++;
-
-                ChatPilotMod.LOGGER.info(
-                        "[ChatPilot][Flint] Could not find open flint area nearby, exploring ({})",
-                        openSpaceAttempts
-                );
-
-                ChatPilotClient.BARITONE.run("explore");
-
-                if (ticksInStage() > 20 * 8) {
-                    enterStage(Stage.BUILD_COLUMN);
-                }
-
-                return;
-            }
-
-            ChatPilotMod.LOGGER.info(
-                    "[ChatPilot][Flint] Walking to open flint build area at {}",
-                    openSpaceTarget
-            );
-
-            ChatPilotClient.BARITONE.gotoNear(openSpaceTarget, 2);
-        }
-
-        if (mc.player.getBlockPos().getSquaredDistance(openSpaceTarget) <= 4.0) {
+        // Arrived at a chosen open spot - build the column there.
+        if (openSpaceTarget != null
+                && mc.player.getBlockPos().getSquaredDistance(openSpaceTarget) <= 4.0) {
             ChatPilotClient.BARITONE.hardReset();
             enterStage(Stage.BUILD_COLUMN);
             return;
         }
 
-        if (ticksInStage() > 20 * 20) {
-            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Open-space walk timed out, trying another spot");
-            openSpaceTarget = null;
-            enterStage(Stage.MOVE_TO_OPEN_SPACE);
+        // Genuinely cannot reach open ground - give up so TaskManager takes the
+        // bot home instead of looping underground forever. The gravel is kept.
+        if (ticksInStage() > 20 * 90) {
+            ChatPilotMod.LOGGER.info("[ChatPilot][Flint] Could not reach open ground in time, ending task");
+            enterStage(Stage.DONE);
             return;
         }
 
-        if (!ChatPilotClient.BARITONE.isPathing()) {
-            ChatPilotClient.BARITONE.gotoNear(openSpaceTarget, 2);
+        // Periodically (re)scan for a real open build spot. While heading home
+        // the bot surfaces and loads new chunks, so a usable spot can appear at
+        // any time. The scan is throttled because it is moderately expensive.
+        if (openSpaceTarget == null
+                && clientTick() - lastOpenSpaceScanTick >= 40) {
+            lastOpenSpaceScanTick = clientTick();
+            openSpaceTarget = findOpenBuildStandPos(mc, height);
+
+            if (openSpaceTarget != null) {
+                ChatPilotMod.LOGGER.info(
+                        "[ChatPilot][Flint] Walking to open flint build area at {}",
+                        openSpaceTarget
+                );
+                ChatPilotClient.BARITONE.hardReset();
+                ChatPilotClient.BARITONE.gotoNear(openSpaceTarget, 2);
+            }
+        }
+
+        // Have a target: walk to it.
+        if (openSpaceTarget != null) {
+            if (!ChatPilotClient.BARITONE.isPathing()) {
+                ChatPilotClient.BARITONE.gotoNear(openSpaceTarget, 2);
+            }
+            return;
+        }
+
+        // No open build spot in range. The bot is most likely still
+        // underground from collecting gravel. Head to the house - it sits in
+        // open ground - and keep re-scanning for a build spot on the way.
+        BlockPos bed = (ChatPilotClient.HOME != null && ChatPilotClient.HOME.hasHome())
+                ? ChatPilotClient.HOME.getBedPos()
+                : null;
+
+        if (bed != null) {
+            if (!ChatPilotClient.BARITONE.isPathing()) {
+                ChatPilotClient.BARITONE.gotoNear(bed, 6);
+            }
+        } else if (!ChatPilotClient.BARITONE.isActive()) {
+            // No home known - wander toward the surface as a last resort.
+            ChatPilotClient.BARITONE.run("explore");
         }
     }
 

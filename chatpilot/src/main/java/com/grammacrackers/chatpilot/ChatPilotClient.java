@@ -24,6 +24,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import com.grammacrackers.chatpilot.safety.LavaEscapeManager;
 import com.grammacrackers.chatpilot.chat.OreDemandTracker;
 import com.grammacrackers.chatpilot.movement.LookWhereWalkingManager;
+import com.grammacrackers.chatpilot.movement.DoorCloseGuard;
 import com.grammacrackers.chatpilot.safety.WaterEscapeManager;
 import com.grammacrackers.chatpilot.voting.UnstuckVoteTracker;
 
@@ -45,6 +46,7 @@ public class ChatPilotClient implements ClientModInitializer {
     public static LavaEscapeManager LAVA_ESCAPE;
     public static OreDemandTracker ORE_DEMAND;
     public static LookWhereWalkingManager LOOK_WALKING;
+    public static DoorCloseGuard DOOR_GUARD;
     public static WaterEscapeManager WATER_ESCAPE;
     public static UnstuckVoteTracker UNSTUCK;
 
@@ -76,6 +78,7 @@ public class ChatPilotClient implements ClientModInitializer {
         WATER_ESCAPE = new WaterEscapeManager();
         ORE_DEMAND = new OreDemandTracker();
         LOOK_WALKING = new LookWhereWalkingManager();
+        DOOR_GUARD = new DoorCloseGuard();
 
         // OAuth: load credentials/tokens; start refresh loop; wire token notifications.
         AUTH = new RestreamAuthManager();

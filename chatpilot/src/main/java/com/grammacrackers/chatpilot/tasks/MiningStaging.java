@@ -34,11 +34,28 @@ public final class MiningStaging {
 
         if (mc != null && mc.world != null) {
             try {
-                y = mc.world.getTopY(
+                int topY = mc.world.getTopY(
                         Heightmap.Type.MOTION_BLOCKING_NO_LEAVES,
                         x,
                         z
                 );
+
+                /*
+                 * getTopY returns the world bottom (e.g. -64) for chunks that
+                 * are not loaded yet. The mining staging point sits ~100 blocks
+                 * from home, so when the bot is deep underground that surface
+                 * column is usually unloaded. Trusting the bogus value would
+                 * place this waypoint at bedrock, and Baritone would then dig a
+                 * hole straight down to reach it instead of heading home.
+                 *
+                 * Only accept a clearly above-ground value; otherwise route the
+                 * waypoint at the home bed's height (a real surface Y near home).
+                 */
+                if (topY > mc.world.getBottomY() + 4) {
+                    y = topY;
+                } else {
+                    y = bed.getY();
+                }
             } catch (Throwable ignored) {
                 y = bed.getY();
             }
