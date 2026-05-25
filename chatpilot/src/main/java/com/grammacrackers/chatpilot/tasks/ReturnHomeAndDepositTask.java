@@ -89,12 +89,10 @@ public class ReturnHomeAndDepositTask implements Task {
     private int cactusDropCursor;
 
     /**
-     * How much cobblestone / gravel has been kept (not trashed or deposited)
-     * so far this return trip. Used to keep one stack of cobblestone for
-     * travel and cap gravel at two stacks. Reset in start().
+     * How much cobblestone has been kept (not trashed) so far this return
+     * trip. Used to keep one stack of cobblestone for travel. Reset in start().
      */
     private int cobbleKept;
-    private int gravelKept;
 
     /** Closest the bot has gotten to the bed so far in the current stage. */
     private double bestDistToBed = Double.MAX_VALUE;
@@ -154,7 +152,6 @@ public class ReturnHomeAndDepositTask implements Task {
         hopperDepositCursor = 0;
         cactusDropCursor = 0;
         cobbleKept = 0;
-        gravelKept = 0;
 
         resetReturnProgress(mc);
 
@@ -551,13 +548,14 @@ public class ReturnHomeAndDepositTask implements Task {
     }
 
     /**
-     * Manages Baritone's allowBreak during the return-home flow.
+     * Manages Baritone's allowBreak and allowPlace during the return-home flow.
      *
-     * Inside the no-dig ring around the house, breaking is normally disabled so
-     * the bot does not leave holes near home. But if the bot has been stuck for
-     * a while, "emergency dig" latches on and breaking is re-enabled so it can
-     * dig itself free instead of freezing forever - actually getting home wins
-     * over keeping the area tidy.
+     * Inside the no-dig ring around the house, breaking AND placing are normally
+     * disabled so the bot does not leave holes near home or stray blocks (e.g.
+     * stacked on the hopper). But if the bot has been stuck for a while,
+     * "emergency dig" latches on and both are re-enabled so it can dig/pillar
+     * itself free instead of freezing forever - actually getting home wins over
+     * keeping the area tidy.
      */
     private void applyReturnHomeDigPolicy(MinecraftClient mc) {
         if (ChatPilotClient.BARITONE == null) {
@@ -594,7 +592,10 @@ public class ReturnHomeAndDepositTask implements Task {
             }
         }
 
+        // Breaking and placing are gated together: inside the no-dig ring the
+        // bot must neither dig holes nor leave stray placed blocks near home.
         ChatPilotClient.BARITONE.setAllowBreak(allowBreak);
+        ChatPilotClient.BARITONE.setAllowPlace(allowBreak);
     }
 
     /**
@@ -984,6 +985,25 @@ public class ReturnHomeAndDepositTask implements Task {
         return -1;
     }
 
+    /** Total count of a given item across the player's 36 inventory slots. */
+    private static int countItem(PlayerEntity p, net.minecraft.item.Item item) {
+        if (p == null) {
+            return 0;
+        }
+
+        int total = 0;
+
+        for (int i = 0; i < 36; i++) {
+            ItemStack s = p.getInventory().getStack(i);
+
+            if (!s.isEmpty() && s.isOf(item)) {
+                total += s.getCount();
+            }
+        }
+
+        return total;
+    }
+
     private static int inventoryDepositCount(PlayerEntity p) {
         int n = 0;
         int gravel = 0;
@@ -1053,12 +1073,13 @@ public class ReturnHomeAndDepositTask implements Task {
         }
 
         // Gravel: keep up to two stacks for the flint task, deposit the rest.
+        // Counting the LIVE inventory total each call (rather than a running
+        // counter) keeps the cap correct across both the hopper pass and the
+        // chest pass, and naturally retries a deposit that did not go through
+        // (e.g. a full hopper) instead of wrongly treating gravel as deposited.
         if (stack.isOf(Items.GRAVEL)) {
-            if (gravelKept < GRAVEL_KEEP_LIMIT) {
-                gravelKept += stack.getCount();
-                return false;
-            }
-            return true;
+            PlayerEntity p = MinecraftClient.getInstance().player;
+            return p != null && countItem(p, Items.GRAVEL) > GRAVEL_KEEP_LIMIT;
         }
 
         return shouldDeposit(stack);
@@ -1126,7 +1147,10 @@ public class ReturnHomeAndDepositTask implements Task {
             return false;
         }
 
-        if (cfg.keepGravelForFlintTask && s.isOf(Items.GRAVEL)) {
+        // Gravel is never trash - it is a flint-task resource. The deposit
+        // flow keeps two stacks and stores the excess; it must never be
+        // thrown away at the cactus.
+        if (s.isOf(Items.GRAVEL)) {
             return false;
         }
 

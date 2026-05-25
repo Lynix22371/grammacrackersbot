@@ -71,13 +71,15 @@ public class HouseProtectionGuard {
     }
 
     /**
-     * allowBreak ownership.
+     * allowBreak / allowPlace ownership.
      *
      * While the return-home / deposit flow runs, the ReturnHomeAndDepositTask
-     * manages allowBreak itself - it knows when it is stuck inside the no-dig
-     * ring and must be allowed to dig free. In every other phase (especially
-     * mining) breaking must be enabled, otherwise Baritone's mine process
-     * deadlocks with "Unable to mine when allowBreak is false".
+     * manages allowBreak and allowPlace itself - it knows when it is stuck
+     * inside the no-dig ring and must be allowed to dig/place to free itself.
+     * In every other phase (especially mining) breaking must be enabled,
+     * otherwise Baritone's mine process deadlocks with "Unable to mine when
+     * allowBreak is false", and placing must be enabled so Baritone can
+     * pillar/bridge out of holes.
      */
     private void applyNoDigZone() {
         if (ChatPilotClient.BARITONE == null) return;
@@ -90,10 +92,12 @@ public class HouseProtectionGuard {
                          || phase == TaskManager.Phase.DEPOSITING;
         }
 
-        // Outside the return-home flow, always allow breaking so mining works.
-        // During return-home, leave allowBreak to the task itself.
+        // Outside the return-home flow, always allow breaking and placing so
+        // mining and pillar-escape work. During return-home, leave both to
+        // the task itself.
         if (!returningHome) {
             ChatPilotClient.BARITONE.setAllowBreak(true);
+            ChatPilotClient.BARITONE.setAllowPlace(true);
         }
     }
 

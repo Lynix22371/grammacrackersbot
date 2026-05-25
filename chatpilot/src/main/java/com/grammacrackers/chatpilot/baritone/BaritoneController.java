@@ -31,6 +31,9 @@ public class BaritoneController {
     /** Last value pushed to Baritone's allowBreak setting; avoids redundant writes. */
     private Boolean allowBreakState = null;
 
+    /** Last value pushed to Baritone's allowPlace setting; avoids redundant writes. */
+    private Boolean allowPlaceState = null;
+
     /** Last value pushed to Baritone's freeLook setting; avoids redundant writes. */
     private Boolean freeLookState = null;
 
@@ -229,6 +232,29 @@ public class BaritoneController {
             allowBreakState = allow;
         } catch (Throwable t) {
             ChatPilotMod.LOGGER.warn("[ChatPilot] Failed to set Baritone allowBreak={}", allow, t);
+        }
+    }
+
+    /**
+     * Toggles whether Baritone may place blocks. Used to enforce a no-place
+     * zone around the house so the bot never leaves stray blocks (e.g. stacked
+     * on the hopper) while pathing home. Placing far from home still works, so
+     * Baritone can pillar/bridge normally everywhere else.
+     */
+    public void setAllowPlace(boolean allow) {
+        if (allowPlaceState != null && allowPlaceState == allow) {
+            return;
+        }
+
+        if (!ensure()) {
+            return;
+        }
+
+        try {
+            BaritoneAPI.getSettings().allowPlace.value = allow;
+            allowPlaceState = allow;
+        } catch (Throwable t) {
+            ChatPilotMod.LOGGER.warn("[ChatPilot] Failed to set Baritone allowPlace={}", allow, t);
         }
     }
 

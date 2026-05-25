@@ -74,6 +74,10 @@ public class SessionTicker {
         if (ChatPilotClient.LOOK_WALKING != null) {
             ChatPilotClient.LOOK_WALKING.tick(mc);
         }
+
+        if (ChatPilotClient.DOOR_GUARD != null) {
+            ChatPilotClient.DOOR_GUARD.tick(mc);
+        }
         
         if (ChatPilotClient.UNSTUCK != null) {
             ChatPilotClient.UNSTUCK.tick(mc);

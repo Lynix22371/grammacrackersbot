@@ -1,11 +1,12 @@
 /**
- * Vote options chat can pick from. v1.2.0 wiring:
- *   1 - Mine ores       (always offered)  -> emerald/gold/coal mining
+ * Vote options chat can pick from. Current wiring:
+ *   1 - Mine ores       (always offered)
  *   2 - Fish            (always offered)  -> replaced wood as of v1.2.0
  *   3 - Explore         (always offered)
-     4 - Farm flint
- *   5 - Sleep           (only at night)
- *   M - Mystery         (every Nth round; slots into 4 or 5 depending on Sleep)
+ *   4 - Farm flint      (always offered)
+ *   5 - Explore Nether  (always offered)
+ *   6 - Sleep           (only at night)
+ *   M - Mystery         (every Nth round; slots in after the fixed options)
  *
  * The wood-gathering task still exists in the codebase ({@link
  * com.grammacrackers.chatpilot.tasks.WoodGatheringTask}) but is no longer
@@ -20,6 +21,7 @@ import com.grammacrackers.chatpilot.tasks.FishingTask;
 import com.grammacrackers.chatpilot.tasks.FlintTask;
 import com.grammacrackers.chatpilot.tasks.MiningTask;
 import com.grammacrackers.chatpilot.tasks.MysteryTask;
+import com.grammacrackers.chatpilot.tasks.NetherTask;
 import com.grammacrackers.chatpilot.tasks.SleepTask;
 import com.grammacrackers.chatpilot.tasks.Task;
 import com.grammacrackers.chatpilot.tasks.UnstuckTask;
@@ -50,6 +52,7 @@ public class VoteOption {
         m.put("2", new VoteOption("2", "Fish", "⚘", 0xFF7DD3FC, FishingTask::new));
         m.put("3", new VoteOption("3", "Explore", "⚓", 0xFFFF7AB6, ExploreTask::new));
         m.put("4", new VoteOption("4", "Farm flint", "◆", 0xFFB8B8B8, FlintTask::new));
+        m.put("5", new VoteOption("5", "Nether", "♨", 0xFFFF6B35, NetherTask::new));
 
         return m;
     }

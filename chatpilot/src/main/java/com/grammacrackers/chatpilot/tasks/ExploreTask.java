@@ -74,6 +74,10 @@ public class ExploreTask implements Task {
     private static final int  MARKER_SCAN_HORIZ         = 64;
     private static final int  MARKER_SCAN_VERT          = 16;
     private static final int  WATER_AVOID_RADIUS        = 4;
+    /** Markers within this many blocks (horizontally) of home are ignored, so
+     *  the explore task heads OUT to find something new instead of locking onto
+     *  the structure the house itself sits in/next to and walking back home. */
+    private static final int  MARKER_MIN_DIST_FROM_HOME = 128;
 
     private enum Stage { SCAN_AND_HUNT, APPROACH, WANDER, FIND_CHEST, APPROACH_CHEST,
                          OPEN_CHEST, LOOT, CLOSE_CHEST, DONE }
@@ -131,6 +135,7 @@ public class ExploreTask implements Task {
         chestQueue.clear();
         chosenType    = null;
         chosenMarker  = null;
+        com.grammacrackers.chatpilot.travel.BoatTravelHelper.reset();
         ChatPilotClient.BARITONE.hardReset();
         // Open ground game: nudge Baritone into wandering while we scan.
         ChatPilotClient.BARITONE.run("explore");
@@ -148,6 +153,17 @@ public class ExploreTask implements Task {
         if (clientTick() - taskStartTick > HUNT_TIMEOUT_SECONDS * 20) {
             ChatPilotMod.LOGGER.info("[ChatPilot][Explore] Hunt timeout reached, finishing");
             return true;
+        }
+
+        // Boat assist - cross water by boat instead of swimming. Works in any
+        // stage: the goal is the located structure, or a point far ahead in
+        // the current heading while still searching.
+        if (shouldUseBoatAssist() && ChatPilotClient.CONFIG != null
+                && ChatPilotClient.CONFIG.mysteryUseBoat) {
+            BlockPos boatGoal = chosenMarker != null ? chosenMarker : farAheadPoint(mc);
+            if (com.grammacrackers.chatpilot.travel.BoatTravelHelper.tickBoatAssist(mc, boatGoal)) {
+                return false;
+            }
         }
 
         switch (stage) {
@@ -202,13 +218,7 @@ public class ExploreTask implements Task {
 
     private void tickApproach(MinecraftClient mc) {
         if (chosenMarker == null) { enterStage(Stage.SCAN_AND_HUNT); return; }
-        if (shouldUseBoatAssist()
-                && ChatPilotClient.CONFIG.mysteryUseBoat
-                && chosenMarker != null
-                && com.grammacrackers.chatpilot.travel.BoatTravelHelper.tickBoatAssist(mc, chosenMarker)) {
-            return;
-        }
-        
+
         // Re-issue the goal if Baritone went idle without arriving.
         double dist2 = mc.player.getBlockPos().getSquaredDistance(chosenMarker);
         if (dist2 < ARRIVAL_DIST * ARRIVAL_DIST) {
@@ -379,6 +389,11 @@ public class ExploreTask implements Task {
                 // Skip if already visited a same-kind structure near here.
                 if (ChatPilotClient.VISITED.isNearVisited(t.kind, worldDimension, im)) continue;
 
+                // Skip structures at or right next to home. The explore task
+                // should head OUT to find somewhere new, not turn around and
+                // walk back to the structure the house sits in/next to.
+                if (isTooCloseToHome(im)) continue;
+
                 // Avoid water structures (shipwrecks etc.) - this filter
                 // catches anything where the marker block sits in or near
                 // water columns. Marker types that are inherently fine in
@@ -396,6 +411,28 @@ public class ExploreTask implements Task {
             } catch (Throwable ignored) {}
         }
         return best;
+    }
+
+    /**
+     * True if a marker sits within {@link #MARKER_MIN_DIST_FROM_HOME} blocks
+     * (horizontally) of the home bed. Such markers are skipped during the scan
+     * so the bot never locks onto the structure its own house sits in/next to
+     * and walks back home instead of exploring outward.
+     */
+    private static boolean isTooCloseToHome(BlockPos pos) {
+        if (ChatPilotClient.HOME == null || !ChatPilotClient.HOME.hasHome()) {
+            return false;
+        }
+
+        BlockPos bed = ChatPilotClient.HOME.getBedPos();
+        if (bed == null) {
+            return false;
+        }
+
+        double dx = pos.getX() - bed.getX();
+        double dz = pos.getZ() - bed.getZ();
+        return dx * dx + dz * dz
+                < (double) MARKER_MIN_DIST_FROM_HOME * MARKER_MIN_DIST_FROM_HOME;
     }
 
     private StructureMarker.Type identifyType(World world, BlockPos p) {
@@ -496,6 +533,7 @@ public class ExploreTask implements Task {
 
     @Override
     public void cancel() {
+        com.grammacrackers.chatpilot.travel.BoatTravelHelper.reset();
         ChatPilotClient.BARITONE.hardReset();
         var p = MinecraftClient.getInstance().player;
         if (p != null) p.closeHandledScreen();
@@ -504,5 +542,17 @@ public class ExploreTask implements Task {
     private int ticksInStage() { return clientTick() - stageStartTick; }
     private static int clientTick() {
         return (int) (com.grammacrackers.chatpilot.event.TickClock.now() & 0x7fffffff);
+    }
+
+    /**
+     * A point ~150 blocks ahead of the bot in its current heading. Used as the
+     * boat-travel goal while still searching (no structure locked yet) so the
+     * bot boats straight across water rather than swimming it.
+     */
+    private static BlockPos farAheadPoint(MinecraftClient mc) {
+        double rad = Math.toRadians(mc.player.getYaw());
+        int dx = (int) Math.round(-Math.sin(rad) * 150.0);
+        int dz = (int) Math.round(Math.cos(rad) * 150.0);
+        return mc.player.getBlockPos().add(dx, 0, dz);
     }
 }

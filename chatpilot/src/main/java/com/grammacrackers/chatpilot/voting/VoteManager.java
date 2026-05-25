@@ -98,11 +98,12 @@ public class VoteManager {
         activeOptions.put("2", options.get("2"));
         activeOptions.put("3", options.get("3"));
         activeOptions.put("4", options.get("4")); // Farm flint
-        
+        activeOptions.put("5", options.get("5")); // Explore Nether
+
         boolean night = isNightTime();
         boolean offerMyst = shouldOfferMystery();
-        
-        int nextSlot = 5;
+
+        int nextSlot = 6;
         if (ChatPilotClient.UNSTUCK != null) {
             ChatPilotClient.UNSTUCK.onVoteOpened();
         }
@@ -268,9 +269,13 @@ public class VoteManager {
         // Sleep option (only counted when option 4 is sleep)
         for (String w : new String[]{"sleep","sleeping","bed","goodnight","gn","night","rest","nap","zzz"})
             ALIASES.put(w, "sleep");
-        // Mystery option (could be slot 4 or 5 this round; resolved by id)
+        // Mystery option (slot resolved by id; shifts round to round)
         for (String w : new String[]{"mystery","unknown","surprise","secret","battle","danger","fight","?"})
             ALIASES.put(w, "mystery");
+        // Explore Nether option
+        for (String w : new String[]{"nether","hell","netherite","quartz","fortress","lava","debris",
+                                     "ancientdebris","blackstone","glowstone"})
+            ALIASES.put(w, "nether");
     }
 
     /**
@@ -311,13 +316,14 @@ public class VoteManager {
     /** Find the active option whose task factory's id matches {@code id}. */
     private String keyForId(String id) {
         // Cheaper than instantiating the factory: hard-code which IDs come
-        // from which fixed slots, and special-case mystery by label since
-        // it shifts between slot 4 and 5 round to round.
+        // from which fixed slots (1-5), and special-case sleep/mystery/unstuck
+        // by label since their slot shifts round to round.
         switch (id) {
             case "mine":    return activeOptions.containsKey("1") ? "1" : null;
             case "fish":    return activeOptions.containsKey("2") ? "2" : null;
             case "explore": return activeOptions.containsKey("3") ? "3" : null;
             case "flint":   return activeOptions.containsKey("4") ? "4" : null;
+            case "nether":  return activeOptions.containsKey("5") ? "5" : null;
             case "sleep": {
                 for (var e : activeOptions.entrySet()) {
                     if ("Sleep".equalsIgnoreCase(e.getValue().label)) {
