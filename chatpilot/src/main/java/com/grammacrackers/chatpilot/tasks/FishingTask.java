@@ -13,51 +13,18 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 
 /**
- * Fishing task. v1.3.2 replacement for the old wood-gathering vote slot.
+ * Fishing task. v1.4.0 replacement for the old wood-gathering vote slot.
  *
- * Why fishing instead of wood: streams want visible progression that doesn't
- * accumulate too many resources. Fishing satisfies all three:
- *   - Visible: bobber casts and bobs in real time, splash on each catch.
- *   - Progressive: catches arrive one at a time, chat watches a counter tick.
- *   - Low impact on inventory: fish are food (not crafting), and rare
- *     treasures (saddles, name tags, enchanted books) give chat hype moments
- *     without flooding the chest.
- *
- * Stages:
- *   SCAN_WATER      - find a water surface block within scan radius
- *   WALK_TO_WATER   - Baritone gotoNear the water position
- *   EQUIP_ROD       - find a fishing_rod in inventory and select it
- *   AIM_AND_CAST    - face the water, right-click to cast
- *   WAITING         - watch the bobber's velocity for a bite
- *   REELING         - right-click again to reel in the catch
- *   SETTLE          - brief pause before the next cast
- *   EXPLORE_OUTWARD - if no water nearby, run Baritone explore and rescan
- *   DONE            - catch target reached or task ended
- *
- * Catch detection: the FishingBobberEntity dips its Y velocity below
- * {@code fishingBiteVelocityY} (default -0.04) when a fish bites. We watch
- * for that on the client side; no server-side mod needed. Vanilla average
- * bite time is 5-30 seconds with a luck-of-the-sea rod, so we cap WAITING at
- * {@code fishingMaxWaitTicks} and recast on timeout.
- *
- * Requirements: the bot needs a fishing rod somewhere in inventory. The task
- * checks hotbar first, then main inventory (auto-swaps to hotbar slot 8).
- * If no rod is found, the task ends quickly so the next vote can pick
- * something else.
- *
- * v1.3.2 Updates:
- *   1. Buoyancy, keep the boat afloat while fishing.
- *   2. If we're already floating in the water, just fish there.
- *   3. Look for a 3x3 source block water pool with sky blocks above it to
- *      fish for rarer items.
- *   4. Flowing water flexibility, allow it to fish in areas with flowing water.
- *   5. Bobber Despawn Reset. If the bobber disappears into thin air during the
- *      reeling phase, it logs a warning and forces a state reset back to SCAN_WATER.
- *   6. Optional Diagnostic Telemetry to report the 2D distance to the water target.
- *   7. No accidental fishing in Lava.
- *   8. Changed the distance to be closer to a water source to ensure what we catch, we keep.
- *   9. Attempted to make finding water sources that are closer. Still needs work.
- *   10. Gave the casting more arc to clear obstruction blocks that may prevent hitting water.
+ * v1.4.0 Updates:
+ * 1. Buoyancy: Keeps the player jumping to stay afloat while fishing or swimming.
+ * 2. Deep Ocean Fallback: If already floating in water, skips pathfinding and fishes in-place 4 blocks ahead.
+ * 3. Ultimate Underground Filter: Scans for a 3x3 water pool that strictly has open sky access directly above it.
+ * 4. Fluid Flexibility: Allows scanning and targeting of both still and flowing water.
+ * 5. Reeling Despawn Safety Net: Automatically resets state to SCAN_WATER if the server or an anti-lag plugin despawns the bobber during reeling.
+ * 6. Hard-Capped Proximity Sort: Forces absolute 3D straight-line distance sorting to guarantee locking onto the closest valid water block first.
+ * 7. Anti-Lava Safeguard: Restricts scanning parameters to ensure the bot never attempts to cast into lava.
+ * 8. Tightened Shoreline Approach: Adjusted Baritone pathing bounds to stop closer to the target pool, ensuring catches aren't lost on the bank.
+ * 9. Dynamic Lob Modifier: Lifts the pitching arc up by 4.5 degrees per block of horizontal distance to clear lips, fences, and 1-block-high shoreline ridges.
  */
 public class FishingTask implements Task {
 
@@ -99,6 +66,7 @@ public class FishingTask implements Task {
             stage = Stage.DONE;
             return;
         }
+
         taskStartTick  = clientTick();
         stageStartTick = clientTick();
         catches        = 0;
@@ -106,7 +74,6 @@ public class FishingTask implements Task {
         waterTarget    = null;
         ChatPilotClient.BARITONE.hardReset();
 
-        // DIAGNOSTIC START LOG
         ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] ==============================================");
         ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] TASK STARTED! Bot current position: [X: {}, Y: {}, Z: {}]",
                 mc.player.getBlockX(), mc.player.getBlockY(), mc.player.getBlockZ());
@@ -145,7 +112,6 @@ public class FishingTask implements Task {
     /* ---------- per-stage handlers ---------- */
 
     private void tickScanWater(MinecraftClient mc) {
-        // 1. TARGET LOCK: If we already have a target and are moving towards it, DO NOT scan again!
         if (waterTarget != null) {
             enterStage(Stage.WALK_TO_WATER);
             return;
@@ -172,8 +138,6 @@ public class FishingTask implements Task {
         if (surface != null) {
             waterTarget = surface;
             ChatPilotClient.BARITONE.hardReset();
-
-            // Tell Baritone to go to a fixed radius of 3 blocks from the target
             ChatPilotClient.BARITONE.gotoNear(surface, 3);
             enterStage(Stage.WALK_TO_WATER);
             return;
@@ -202,29 +166,25 @@ public class FishingTask implements Task {
             return;
         }
 
-        // 1. Calculate TRUE 3D distance so vertical elevation cliffs don't trick the bot
         double dx = waterTarget.getX() + 0.5 - mc.player.getX();
         double dy = waterTarget.getY() + 0.5 - mc.player.getY();
         double dz = waterTarget.getZ() + 0.5 - mc.player.getZ();
         double dist3D = Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
 
-        // DIAGNOSTIC STATUS LOG (Reporting absolute 3D distance every 2 seconds)
         if (ticksInStage() % 40 == 0) {
             ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] En route to target [X: {}, Y: {}, Z: {}]. 3D Distance remaining: {} blocks.",
                     waterTarget.getX(), waterTarget.getY(), waterTarget.getZ(), Math.round(dist3D * 10.0) / 10.0);
         }
 
-        // 2. Stop when within an ideal casting distance (between 2 and 5 blocks away in 3D space)
-        if (dist3D <= 5.5 && dist3D >= 2.0) {
+        if (dist3D <= 3.0 && dist3D >= 1.5) {
             ChatPilotClient.BARITONE.stop();
             ChatPilotClient.BARITONE.hardReset();
-            ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Solid shoreline position reached. Distance: {} blocks. Stopping to fish.", Math.round(dist3D * 10.0) / 10.0);
+            ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] Perfect shoreline position reached. Distance: {} blocks. Stopping to fish.", Math.round(dist3D * 10.0) / 10.0);
             enterStage(Stage.EQUIP_ROD);
             return;
         }
 
-        // 3. Safety fallback: If the bot overshoots or falls in, stop and try to fish anyway
-        if (dist3D < 2.0) {
+        if (dist3D < 1.5) {
             ChatPilotClient.BARITONE.stop();
             ChatPilotClient.BARITONE.hardReset();
             enterStage(Stage.EQUIP_ROD);
@@ -239,9 +199,8 @@ public class FishingTask implements Task {
             return;
         }
 
-        // 4. Keep the target arrival radius locked at a consistent 3 blocks to match scan phase
         if (!ChatPilotClient.BARITONE.isPathing() && !ChatPilotClient.BARITONE.isActive()) {
-            ChatPilotClient.BARITONE.gotoNear(waterTarget, 3);
+            ChatPilotClient.BARITONE.gotoNear(waterTarget, 2);
         }
     }
 
@@ -261,10 +220,7 @@ public class FishingTask implements Task {
             mc.player.getInventory().setSelectedSlot(rodSelectedSlot);
         }
 
-        // FIX: Lift the target vector up by 1.5 blocks!
-        // Instead of aiming at the water's surface, this forces the bot to look slightly upward,
-        // throwing the bobber in a clean arc OVER the 1-block-high shoreline ridge.
-        Vec3d highTarget = Vec3d.ofCenter(waterTarget).add(0, 1.5, 0);
+        Vec3d highTarget = Vec3d.ofCenter(waterTarget).add(0, 1.0, 0);
         aimAt(mc, highTarget);
 
         var result = mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
@@ -358,7 +314,6 @@ public class FishingTask implements Task {
 
         java.util.List<BlockPos> validWaterSpots = new java.util.ArrayList<>();
 
-        // 1. Gather ALL water blocks within the search box
         for (int y = -verticalRadius; y <= verticalRadius; y++) {
             for (int x = -horizontalRadius; x <= horizontalRadius; x++) {
                 for (int z = -horizontalRadius; z <= horizontalRadius; z++) {
@@ -366,21 +321,18 @@ public class FishingTask implements Task {
 
                     var fluidState = mc.world.getFluidState(p);
                     if (!fluidState.isEmpty() && (fluidState.isOf(Fluids.WATER) || fluidState.isOf(Fluids.FLOWING_WATER))) {
-                        // Drop it into the list for sorting
                         validWaterSpots.add(p);
                     }
                 }
             }
         }
 
-        // 2. SORT THE LIST: Absolute closest 3D straight-line distance comes first!
         validWaterSpots.sort((a, b) -> {
             double distA = a.getSquaredDistance(mc.player.getPos());
             double distB = b.getSquaredDistance(mc.player.getPos());
             return Double.compare(distA, distB);
         });
 
-        // 3. Pick the absolute first block in the sorted list that passes the 3x3 open air check
         for (BlockPos p : validWaterSpots) {
             if (isCenterOf3x3OpenWater(mc, p)) {
                 double actualDistance = Math.sqrt(p.getSquaredDistance(mc.player.getPos()));
@@ -388,7 +340,7 @@ public class FishingTask implements Task {
                 ChatPilotMod.LOGGER.info("[ChatPilot][Fishing] >>> TARGET LOCKED! Absolute closest 3x3 water hole found at [X: {}, Y: {}, Z: {}] ({} blocks away). <<<",
                         p.getX(), p.getY(), p.getZ(), Math.round(actualDistance * 10.0) / 10.0);
 
-                return p; // Return instantly! This guarantees it's the closest one.
+                return p;
             }
         }
 
@@ -402,14 +354,11 @@ public class FishingTask implements Task {
                 BlockPos checkPos = center.add(dx, 0, dz);
 
                 var state = mc.world.getFluidState(checkPos);
-                // Must be water or flowing water
                 if (state.isEmpty() || (!state.isOf(Fluids.WATER) && !state.isOf(Fluids.FLOWING_WATER))) {
                     return false;
                 }
 
-                // CHANGED: Instead of strict sky visibility, just ensure there is physical room to cast
-                // This stops leaves, trees, and bridges from making the bot blind to nearby water.
-                if (!mc.world.getBlockState(checkPos.up()).isAir() && !mc.world.getFluidState(checkPos.up()).isEmpty()) {
+                if (!mc.world.isSkyVisible(checkPos.up())) {
                     return false;
                 }
             }
@@ -446,9 +395,15 @@ public class FishingTask implements Task {
         double dx = target.x - eye.x, dy = target.y - eye.y, dz = target.z - eye.z;
         double horiz = Math.sqrt(dx*dx + dz*dz);
         float yaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
-        float pitch = (float) -Math.toDegrees(Math.atan2(dy, horiz));
+
+        float basePitch = (float) -Math.toDegrees(Math.atan2(dy, horiz));
+        float lobCompensation = (float) (horiz * 4.5);
+
+        float finalPitch = basePitch - lobCompensation;
+        if (finalPitch < -60.0f) finalPitch = -60.0f;
+
         mc.player.setYaw(yaw);
-        mc.player.setPitch(pitch);
+        mc.player.setPitch(finalPitch);
     }
 
     @Override
